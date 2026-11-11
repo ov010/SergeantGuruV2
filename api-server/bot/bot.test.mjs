@@ -41,33 +41,26 @@ test("registers only the retained commands", () => {
   assert.equal(registered.find(({ name }) => name === "admin").options?.length ?? 0, 0);
   assert.equal(registered.find(({ name }) => name === "badge").options[0].name, "count");
   assert.equal(registered.find(({ name }) => name === "search").options[0].name, "query");
-  const version = registered.find(({ name }) => name === "changelog").options[0];
-  assert.equal(version.name, "version");
-  assert.equal(version.type, 3);
-  assert.ok(!version.required);
+  assert.equal(registered.find(({ name }) => name === "changelog").options?.length ?? 0, 0);
   assert.match(registered.find(({ name }) => name === "search").description, /username, user ID, or interaction ID/);
 });
 
 test("changelog parses newest-first releases, CRLF bullets, and ignores malformed sections", () => {
-  assert.deepEqual(parseChangelog("# Change Log\r\n## 1.1.0 - 2026-11-11\r\n- Added command\r\n- Added colors\r\n## invalid\r\n- ignored\r\n## 1.0.0 - 2026-01-01\r\n- Initial release"), [
-    { version: "1.1.0", date: "2026-11-11", descriptions: ["Added command", "Added colors"] },
-    { version: "1.0.0", date: "2026-01-01", descriptions: ["Initial release"] },
+  assert.deepEqual(parseChangelog("# Change Log\r\n## 2.1.0 - 2026-11-13\r\n- Added command\r\n- Added colors\r\n## invalid\r\n- ignored\r\n## 2.0.0 - 2026-11-12\r\n- Initial release"), [
+    { version: "2.1.0", date: "2026-11-13", descriptions: ["Added command", "Added colors"] },
+    { version: "2.0.0", date: "2026-11-12", descriptions: ["Initial release"] },
   ]);
   assert.deepEqual(parseChangelog(""), []);
   assert.deepEqual(parseChangelog("## malformed\n- ignored"), []);
 });
 
-test("changelog embeds select latest or requested versions and handle missing releases", () => {
-  const markdown = "## 1.1.0 - 2026-11-11\n- New command\n## 1.0.0 - 2026-01-01\n- Initial release";
-  const latest = createChangelogEmbed(markdown).toJSON();
-  assert.equal(latest.title, "Change Log");
-  assert.match(latest.description, /1\.1\.0 - 2026-11-11/);
-  assert.match(latest.description, /New command/);
-  assert.match(createChangelogEmbed(markdown, "1.0.0").toJSON().description, /Initial release/);
-  for (const embed of [createChangelogEmbed(""), createChangelogEmbed(markdown, "missing")]) {
-    assert.equal(embed.toJSON().title, "Change Log Unavailable");
-  }
-  const long = createChangelogEmbed(`## 1.1.0 - 2026-11-11\n- ${"x".repeat(7000)}`).toJSON();
+test("changelog shows all recent releases newest first without a version", () => {
+  const markdown = "## 2.1.0 - 2026-11-13\n- New command\n- New colors\n## 2.0.0 - 2026-11-12\n- Initial release";
+  const recent = createChangelogEmbed(markdown).toJSON();
+  assert.equal(recent.title, "Change Log");
+  assert.equal(recent.description, "**2.1.0 - 2026-11-13**\n\n- New command\n- New colors\n\n**2.0.0 - 2026-11-12**\n\n- Initial release");
+  assert.equal(createChangelogEmbed("").toJSON().title, "Change Log Unavailable");
+  const long = createChangelogEmbed(`## 2.0.0 - 2026-11-12\n- ${"x".repeat(7000)}`).toJSON();
   assert.ok(long.description.length <= 4096);
   assert.ok(COLOR_TARGETS.includes("Change Log"));
   assert.ok(COLOR_TARGETS.includes("Change Log Unavailable"));
@@ -76,7 +69,8 @@ test("changelog embeds select latest or requested versions and handle missing re
 test("changelog loads the repository release notes from the bundled runtime path", async () => {
   const embed = (await loadChangelogEmbed()).toJSON();
   assert.equal(embed.title, "Change Log");
-  assert.match(embed.description, /1\.1\.0/);
+  assert.match(embed.description, /2\.0\.0/);
+  assert.doesNotMatch(embed.description, /1\.[01]\.0/);
   assert.match(embed.description, /changelog/);
 });
 
