@@ -1,0 +1,12 @@
+minimumReleaseAge: 1440
+
+packages:
+  - "api-server"
+
+catalog:
+  "@types/node": ^25.3.3
+
+autoInstallPeers: false
+
+onlyBuiltDependencies:
+  - esbuild
