@@ -9,7 +9,8 @@ dist/
 *.tsbuildinfo
 
 # Bot runtime data, caches, and logs
-/api-server/bot/data/
+/api-server/bot/data/*
+!/api-server/bot/data/grade_mistakes_sheet.txt
 *.log
 
 # Local editor and operating-system files

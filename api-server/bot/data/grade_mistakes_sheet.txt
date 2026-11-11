@@ -1,0 +1,432 @@
+[-] Faced a wall couple of times. - MINOR
+[-] Didn't do SFL correctly. - MINOR
+[-] Slow reaction time overall. - MINOR
+[-] Used aura when I told to hold aura. - MINOR
+[-] Failure to enforce KZ in reactor. - MINOR
+[-] Incorrect positioning in labs. - MINOR
+[-] Didn't hold aura when needed to. - MINOR
+[-] Lost track of VIP couple of times. - MINOR
+[-] Forgot crescent moon was active. - MINOR
+[-] Moved during LC. - MODERATE
+[-] Lost track of vip. - MINOR
+[-] Faced wrong way at clone spawn. - MINOR
+[-] Enforced KZ in DZ. - MINOR
+[-] Faced a wall in wall formation. - MINOR
+[-] Faced wall in wall fomration. - MINOR
+[-] Failure to kill allied personnel who was shooting at VIP. - MINOR
+[-] Enforced KZ on SLOTH. - MINOR
+[-] Returned to VIP when VIP died while being on a TEMP VIP. - MINOR
+[-] Did WALL facing a wall. - MINOR
+[-] Failure to cuff VIP fully to safety. - MINOR
+[-] Incorrect positioning in CCTV. - MINOR
+[-] Shielded a wall. - MINOR
+[-] Left correct position at reactor. - MINOR
+[-] Forgot WALL was in effect. - MINOR
+[-] Did IV LEFT WING on LEFT WING. - MINOR
+[-] Enforced KZ on a real VIP. - MINOR
+[-] Failure to cuff PB'ed individual back to VIP when VIP moved. - MINOR
+[-] Tried to terminate whitelisted individual when CLR was given. - MINOR
+[-] Didn't hold aura when needed to in specific situations. - MINOR
+[-] Held some incorrect tools from time to time. - MINOR
+[-] Failure to do PB KARIMO. - MINOR
+[-] Faced a wall. - MINOR
+[-] Did CRESCENT MOON wrong. - MINOR
+[-] Failure to cuff PB'ed individual back when they moved. - MINOR
+[-] Held wrong tools couple of times. - MINOR
+[-] Failure to enforce KZ. - MINOR
+[-] Forgot 1 MAN GUARD was in effect. - MINOR
+[-] Bad positioning few times. - MINOR
+[-] Slow reaction time to enforce KZ. - MINOR
+[-] Some positioning mishaps. - MODERATE
+[-] RA'ed during LWR. - MINOR
+[-] Used aura on themself. - MINOR
+[-] Forgot DSL was in effect. - MINOR
+[-] Did formation around mech wrong. - MINOR
+[-] Some shielding mishaps. - MINOR
+[-] Failure to obey VIP order. - MINOR
+[-] Failure to enforce KZ in bunker. - MINOR
+[-] Left VIP alone to do PB/D command. - MINOR
+[-] Switched to KANE when KANE wasn't given. - MINOR
+[-] Shielded wall. - MINOR
+[-] Failure to obey VIP command (G DONAT). - MINOR
+[-] Few positioning mishaps. - MINOR
+[-] Detached from PB to do D USER leaving PB'ed individual without guard. - MINOR
+[-] Small shielding mishaps. - MINOR
+[-] Detained wrong individual. - MINOR
+[-] One incorrect room positioning. - MINOR
+[-] Slow reaction to enforce KZ. - MINOR
+[-] Used actual detain function on !D USER. - MINOR
+[-] Failure to aura before cuffing. - MINOR
+[-] Did IV LEFT WING wrong. - MINOR
+[-] Failure to enforze killzone. - MINOR
+[-] Forgot SPC was in effect. - MINOR
+[-] Failure to cuff PB'ed individual when they moved. - MINOR
+[-] Failure to obey a VIP order. - MINOR
+[-] Facing somewhere with their body instead of their shield. - MINOR
+[-] Failure to react quickly to a situation. - MINOR
+[-] Enforcing killzone during Sloth. - MINOR
+[-] Failure to enforce killzone. - MINOR
+[-] Bad positioning in formations. - MINOR
+[-] Failure to kill people entering the VIP's room. - MINOR
+[-] OOS violation. - MINOR
+[-] Didn't hold staff at cafeteria, reactor door, bunker door, control room or CCTV. - MODERATE
+[-] Failure to cuff me to bunker during nuke event. - MODERATE
+[-] Failure to aura VIP multiple times. - MODERATE
+[-] Faced wall in wall formation. - MODERATE
+[-] Used sonic push for enforcing KZ. - MODERATE
+[-] Failed to cuff vip to safety. - MODERATE
+[-] Failure to aura when grenade was thrown near VIP. - MODERATE
+[-] Moved during LC (4X). - MODERATE
+[-] Left VIP fully exposed to threats to kill outlaws near VIP. - MODERATE
+[-] Failure to aura before cuffing VIP to safety. - MODERATE
+[-] Some mishaps with commands (PB KARIMO, LC, RA, KANE). - MODERATE
+[-] Failure to assist handicapped CG. - MODERATE
+[-] Failure to notice civilian primed with C4 running at VIP. - MODERATE
+[-] Poor shielding. - MODERATE
+[-] Poor positioning. - MODERATE
+[-] Faced a wall multiple times. - MODERATE
+[-] Failure to notice SPY near VIP. - MODERATE
+[-] Failure to use threat analysis. - MODERATE
+[-] Broke OOS couple of times. - MODERATE
+[-] Some incorrect shielding positionings. - MODERATE
+[-] Failure to use threat analysis when needed. - MODERATE
+[-] Enforcing rules on people while guarding. - MODERATE
+[-] Failure to assist a handicapped Guardsman in reaching the VIP. - MODERATE
+[-] Failure to obey Pointman Orders. - MODERATE
+[-] Failure to aura and cuff VIP away from mutants/airstrikes. - MAJOR
+[-] Did nothing against green monster when VIP walked up to them. - MAJOR
+[-] Failure to aura from orbital/airstrike. - MAJOR
+[-] Failure to notice a grenade thrown at the VIP. - MAJOR
+[-] Failure to notice a raider next to the VIP. - MAJOR
+[-] Failure to remain tabbed in. - MAJOR
+[-] Failure to aura a VIP before cuffing them from a death zone. - MAJOR
+[-] Terminating your own VIP. - EXTREME
+[-] Team-killing other guardsmen. - EXTREME
+[-] Team-killing CBRN. - EXTREME
+[-] Treason. - EXTREME
+[-] Anything that would get you punished by SS. - EXTREME
+[-] Intentional OOS violation. - EXTREME
+[-] Failure to keep attendees under control. - MINOR
+[-] Failure to enforce PTS where applicable. - MINOR
+[-] Failure to respond to PTS request. - MINOR
+[-] Failure to enforce STS where applicable. - MINOR
+[-] Slow to set up rounds where applicable. - MINOR
+[-] Failure to respond to AFK request. - MINOR
+[-] Failure to respond to attendee question. - MINOR
+[-] Failure to start the event on time where applicable. - MINOR
+[-] Failure to respond to PTFI request. - MINOR
+[-] Failure to start the event on time by 5 minutes or less. - MINOR
+[-] Minor failure to remain mature during the event. - MINOR
+[-] Slow script pasting of 10 seconds or more. - MINOR
+[-] Failure to start the event on time by 6 minutes or more. - MODERATE
+[-] Failure to balance teams where applicable. - MODERATE
+[-] Failure to post correct shout for the event. - MODERATE
+[-] Failure to remain mature during the event. - MODERATE
+[-] Failure to set up the round correctly where applicable. - MODERATE
+[-] Failure to regain control after it is lost. - EXTREME
+[-] Constant immaturity during the event. - EXTREME
+[-] diamond didn't do anything :sob:. - MODERATE
+[-] Left an open area where threats can shoot me from behind, next time cover me behind strictly [-5%]. - MODERATE
+[-] Aura'd the wrong individual [-5%]. - MODERATE
+[-] Did the room formation incorrectly [-5%]. - MODERATE
+[-] Didn't aura the VIP on time when a threat is nearby, lack of reaction time [-5%]. - MODERATE
+[-] Conducted the Dispersion System wrong (you're supposed to cuff & warn them at 1st and 2nd offense) [-5%]. - MODERATE
+[-] Cuffed the whitelisted individual out of my killzone [-5%]. - MODERATE
+[-] Enforced the killzone on whitelisted individual [-5%]. - MODERATE
+[-] Didn't deal with the MP constantly opening the room door [-5%]. - MODERATE
+[-] Enforced killzone on whitelisted individual [-5%]. - MODERATE
+[-] Utilized their shield facing a wall [-10%]. - MODERATE
+[-] Killed their own VIP with CG Staff [-10%]. - MODERATE
+[-] Delayed on following the 'UL' order [-10%]. - MODERATE
+[-] Did not enforce the Threat Analysis on a whitelisted individual who was harming me [-5%]. - MODERATE
+[-] Wrong tool usage on the room formation (frontman position) [-5%]. - MODERATE
+[-] Came too close to the other guard instead of going to the designated spot in the bunker [-5%]. - MODERATE
+[-] Enforced the room trespasser incorrectly [-5%]. - MODERATE
+[-] Did not position themselves properly. - MINOR
+[-] Did not properly enforce KZ. - MINOR
+[-] Did not RET when T. VIP died. - MINOR
+[-] Attempted to kill someone who entered the room during sloth. - MINOR
+[-] Did not follow LC. - MINOR
+[-] Killed someone who entered the room during sloth. - MINOR
+[-] Enforced rules when guarding. - MODERATE
+[-] Killed the VIP. - MAJOR
+[-] Brought CBRN personnel inside whilst guarding. Your only focus is your VIP. - MODERATE
+[-] A couple of bad decisions on placement;. - MINOR
+[-] Ensure you cover VIP from the place you're intending to face properly and do it fast. - MODERATE
+[-] At the balcony, don't face the border gate. You can see down into it. Go to vents if there are already 2 guards on the VIP. - MODERATE
+[-] When at office, go inside the office room and hold staff. - MODERATE
+[-] Positioning errors;. - MINOR
+[-] Faced terminal. - MODERATE
+[-] Ensure your shield is fully rotated towards the area you're guarding. - MODERATE
+[-] Only hold your shield high when outside. - MODERATE
+[-] Allowed shield to clip through a wall. - MINOR
+[-] Forgot about the LC command. - MINOR
+[-] Poor formation at the office, come inside the corridor that connects the BO spawn and office room. - MINOR
+[-] Make sure not to stand on the VIP, makes it harder for the cuffer. - MINOR
+[-] Failed to aura me when a raider was shooting at me. - MAJOR
+[-] Kane'd during WALL. - MINOR
+[-] Failed to cuff me away from a grenade thrown at me. - MAJOR
+[-] Failed to aura me when a raider was shooting at me/right next to me. - MAJOR
+[-] Bad positioning at some parts. - MINOR
+[-] Stood still for a good while as I was being shot. - MAJOR
+[-] Bad positioning in some cases. - MINOR
+[-] Didn't cuff me out of danger. - MINOR
+[-] Did not follow some commands. - MINOR
+[-] NONE. - MODERATE
+[-] Bad shield positioning at times. - MINOR
+[-] Constantly killed trespassers during !T even after a few minutes. - MINOR
+[-] Attempted to cuff someone who entered a room instead of terminating. - MINOR
+[-] Did not cuff crazy out of the VIP. - MINOR
+[-] Failed to enforce threat analysis. - MODERATE
+[-] Failed to enforce KZ. - MINOR
+[-] Faced a wall in some cases. - MINOR
+[-] Disobeyed a VIP order of !G. - MINOR
+[-] Enforced KZ when I approached a person, and from too far away. - MINOR
+[-] Late reaction time. - MINOR
+[-] Failed to use aura to protect me against threats. - MAJOR
+[-] Didn’t used aura before cuffing me. - MODERATE
+[-] Shot at the VIP once. - MODERATE
+[-] Wrong shield placement (balcony). - MINOR
+[-] Left me exposed during sloth, went too far away from the VIP. - MINOR
+[-] Kept his shield when the host said !LWR. - MINOR
+[-] Bad positioning in the hallway. - MINOR
+[-] Twice where I was getting shot at and did not aura me. - MINOR
+[-] Went on the door of the room instead of on the vip minor. - MINOR
+[-] Enforced KZ when I walked into someone. - MINOR
+[-] Killed somehow who left the prisoner box when you needed to cuff them. - MINOR
+[-] Aura'ed themselves twice when I was in danger (happened more than once). - MINOR
+[-] Was facing a wall. - MINOR
+[-] Sometimes was not positioned correctly. - MINOR
+[-] Was not positioned correctly. - MINOR
+[-] Didn't angle shield. - MINOR
+[-] Most of the time floated and scourge. - MODERATE
+[-] ATTENDEE'S USERNAME: Ayu_senpai9. - MODERATE
+[-] Failure to notice a grenade. - MAJOR
+[-] Most of the time floated and scourage. - MODERATE
+[-] Failed to use aura before cuffing me which led me to die. - MAJOR
+[-] Performed strict guarding preference while we were on sloth. - MINOR
+[-] Some bad positioning in formations. - MINOR
+[-] Kept his shield when I ordered to LWR. - MINOR
+[-] Terminated the VIP (Accidentaly). (MAJOR-EXTREME). - EXTREME
+[-] Went guarding a temp VIP with Crazy. - MINOR
+[-] Failure to kill people entering the VIPs room. - MINOR
+[-] Lost me many times. - MINOR
+[-] Many bad positioning in formations. - MODERATE
+[-] Failed to use aura when there were many raiders around me, which led me to die. - MAJOR
+[-] Failed to terminate all the raiders right in front of me in a timely manner. - MAJOR
+[-] LWR during formations. - MINOR
+[-] Aura self. - MINOR
+[-] Failed to enforce threat analysis sometimes. - MODERATE
+[-] LWR'ed during formations. - MINOR
+[-] Bad shield angles. - MINOR
+[-] Didn't terminated intruders on reactor room and bunker. - MINOR
+[-] Some mid-bad room placements. - MINOR
+[-] Performed strict during sloth. - MINOR
+[-] Failed to aura & cuff me away from a mutant, leading me to die. - MAJOR
+[-] Didn’t terminated intruders in reactor. - MINOR
+[-] Some questionable placements as pointman. - MINOR
+[-] Lost my position too often. - MODERATE
+[-] Bad positioning sometimes. - MINOR
+[-] Didn't kill the outlaw when in plain site. - MODERATE
+[-] Terminated a whitelisted person when I gave the "Clear" command. - MODERATE
+[-] Cuffed intruder outside instead of terminating them when they entered the room I was in (reactor). - MINOR
+[-] Randomly activated aura when no threats were around. - MINOR
+[-] Incorrect positioning shield. - MINOR
+[-] Strayed from VIP randomly when on strict mode. - MODERATE
+[-] When I said "RET" they had returned to the wrong VIP. - MINOR
+[-] Didn't cuff person in PB when they ran away. - MINOR
+[-] Failed to use threat analysis. - MODERATE
+[-] Raised fire arm when I didn't give the RA command (I had them LWR their firearms). - MINOR
+[-] Lost my track many times. - MINOR
+[-] Kept his shield when I said LWR. - MINOR
+[-] Used cuffs on me without using aura before. - MODERATE
+[-] Failed to use aura on me against threats many times, which led me to die. - MAJOR
+[-] Killed a whitelisted person when they were pointing NON explosive gun at me. - MODERATE
+[-] Stopped doing PB when the person getting PBed didn't die. - MINOR
+[-] Walked during "LC." command. - MINOR
+[-] Walked during a "LC." command. - MINOR
+[-] RKed Demon_7906. - MODERATE
+[-] Like a few times they had their shield horribly positioned. - MINOR
+[-] Cuffed someone away while I had my DZ command. - MINOR
+[-] Unequipped weapon and shield when I only said !WEDGE and not !LWR. - MINOR
+[-] Had to correct their shield positioning/INCORRECT shield positioning. - MINOR
+[-] Random aura. - MINOR
+[-] I gave the "G." command and since their point-man they didn't follow the guarding cap rule. - MINOR
+[-] Didn't undo PB when issued a new command. - MINOR
+[-] Was holding aura when someone else was already. - MINOR
+[-] One point or two didn't have good shield positioning. - MINOR
+[-] Didn't enforced CBRN regulations on a temporary VIP trespassing. - MINOR
+[-] Used dispersion system on a whitelisted individual. - MINOR
+[-] Failure to enforce threat analysis. - MODERATE
+[-] Failed to terminate a raider in plain sight multiple times. - MAJOR
+[-] An outlaw killed the person next to me and shot me a few times, and you did nothing. - MODERATE
+[-] Didn’t kill a KOS civilian with a gun out running past me. - MODERATE
+[-] I gave a valid termination command, and you did not follow it. - MODERATE
+[-] Didn’t follow a VB command. - MODERATE
+[-] Followed room formation wrong. Highest rank stays on the VIP, next highest guards the door. - MODERATE
+[-] Didn’t follow the LC command. - MODERATE
+[-] Didn’t follow a valid formation command. - MODERATE
+[-] Did not enforce threat analysis for a temp VIP. - MODERATE
+[-] Didn’t bring a temp VIP under MP-8 inside. - MODERATE
+[-] Was slow to doing a guard command. - MODERATE
+[-] Didn’t remove the individuals standing inside the temp VIP even after the killzone was re-enabled. - MODERATE
+[-] Didn’t return to guarding the temp VIP after being killed. (You died, not the temp VIP). - MODERATE
+[-] Didn’t follow a formation command. - MODERATE
+[-] Killed a whitelisted individual who entered the room, whilst in DZ too. - MODERATE
+[-] You didn’t notice you were guarding a spy multiple times, for long-ish periods of time. - MODERATE
+[-] Did nothing when I was sitting in a gas grenade. - MODERATE
+[-] Kept terminating individuals who entered the room with me, even after I stated that I had not reactivated my killzone from earlier. - MODERATE
+[-] Didn’t use threat analysis on someone aiming an RPG at me. - MODERATE
+[-] Killed a whitelisted individual shooting/aiming at me with a non-teamkillable weapon, whilst in LWR. - MODERATE
+[-] Bad shield placement outside led to me getting beamed by an outlaw at train station. - MODERATE
+[-] Aura’d me but did not take me out of the gas. - MODERATE
+[-] Let a cuffed individual in prisoner box die to a gas grenade instead of releasing them. - MODERATE
+[-] Didn’t attempt to cuff an individual who was being prisoner boxed after they were running around a lot. - MODERATE
+[-] Didn’t notice they were guarding a spy. - MODERATE
+[-] Aura’d yourself without permission from the VIP. - MODERATE
+[-] Followed a spy’s orders. - MODERATE
+[-] Multiple wrong room placement. - MODERATE
+[-] Bad shield placements. - MODERATE
+[-] Went guarding a temporary VIP with other people ignoring their guarding cap. - MODERATE
+[-] Performed strict on sloth. - MODERATE
+[-] Wrong room placements. - MODERATE
+[-] Shot at the VIP. - MODERATE
+[-] Moved on LC. - MODERATE
+[-] Lost my position many times. - MODERATE
+[-] Followed a Temp VIP commands. - MODERATE
+[-] Didn’t terminate trespassers while I said !T Trespassers. - MINOR
+[-] Bad shield positioning. - MINOR
+[-] Killed enlisted members who entered a room while DZ was active. - MINOR
+[-] Late reaction to a raider beside me. - MAJOR
+[-] Didn’t terminate someone holding grenade near me. - MODERATE
+[-] Guarded a spy lot of time. - MAJOR
+[-] Failed to aura and move me from a deathzone. - MAJOR
+[-] Guarded a spy lot of times. - MAJOR
+[-] Killed me as a VIP. - EXTREME
+[-] Slow reaction time. - MODERATE
+[-] Some bad placements as PM. - MODERATE
+[-] Didn't cuffed inductees without jetpack with him. - MODERATE
+[-] Several slow reaction times. - MODERATE
+[-] Wrong positioning in reactor room. - MODERATE
+[-] Left the wall formation. - MODERATE
+[-] Lost the track of the VIP many times. - MODERATE
+[-] Wrongful termination of FT. - MODERATE
+[-] Bad shield placement. - MODERATE
+[-] Wrong room placement. (Bunker and reactor). - MODERATE
+[-] Did not terminate intruders in garage room. - MODERATE
+[-] Lost the VIP track many times. - MODERATE
+[-] Wrong room positioning. (Bunker). - MODERATE
+[-] Used aura for a confetti grenade. :HumilationCat:. - MODERATE
+[-] Wrong shield positioning. - MODERATE
+[-] Lost the VIP track several times. - MODERATE
+[-] There was an enemy in a mech right in front of me, someone aura’ed me and died, but you did not move me at all. - MODERATE
+[-] Slow to following a formation command. - MODERATE
+[-] Shot me when I aimed an RPG at an individual being VIP boxed and killed me when I aimed an RPG at a temp VIP. (EXTREME) (Not logging a divisional punishment, since it seems to harsh given the circumstances, also I don't have a clip). - EXTREME
+[-] Killed me on accident while trying to kill an allied individual hitting me with power fists, that was doing no damage. - MODERATE
+[-] Mistook a spy for a whitelisted individual. - MODERATE
+[-] Didn’t bring an individual being detained to the VIP. - MODERATE
+[-] Hesitancy when utilising pointman speaking permissions. - MODERATE
+[-] Didn’t follow the wedge command initially. - MODERATE
+[-] Slow to following formation commands in general. - MODERATE
+[-] Generally slow to following general commands, also guarded a temp VIP when I specifically stated for another guard to. - MODERATE
+[-] Killed a whitelisted individual in the same room as me. - MODERATE
+[-] Didn’t cuff a temp VIP trespassing inside. - MODERATE
+[-] Used cuffs inappropriately to move a spy away from the VIP, in order to kill the spy. Instead, move the VIP away. (Would be an extreme for cuff abuse, but given the circumstances lowered to a major). - MAJOR
+[-] Let craft walk into me repeatedly. - MINOR
+[-] Let a Hulk mutant get a little too close to me while it was using smash. - MODERATE
+[-] Didn't notice outlaw on right side turrent. - MAJOR
+[-] Improper shield placement. - MINOR
+[-] Bit delayed on reaction to DSL. - MINOR
+[-] went off DSL before I said KANE after I moved. - MINOR
+[-] crouched instead of standing leaving my head open (In control room). - MINOR
+[-] Had shotgun instead of aura inside the control room. - MINOR
+[-] Cuffed me without aura after getting attacked, then accidentally cuffed a CG. - MAJOR
+[-] Ran after craft instead of cuffing him when he moved during PB. - MINOR
+[-] Didn't do VB. - MINOR
+[-] Wrongful usage of KZ. - MINOR
+[-] Nobody went on me with aura in garage. - MODERATE
+[-] Slow reaction. - MODERATE
+[-] Incorrect positioning in cafeteria. - MODERATE
+[-] Guarding an spy. - MODERATE
+[-] Lost of track. - MODERATE
+[-] Self aura. - MODERATE
+[-] Killed an cyberguard. - MODERATE
+[-] Killed VIP (me). - MODERATE
+[-] Wrong scourging in labs. - MODERATE
+[-] Moved during LC twice. -5%. - MODERATE
+[-] Slacked off during the event, hardly guarded at all. -15%. - MODERATE
+[-] Incorrect scourge. -5%. - MODERATE
+[-] Killed VIP (was due to lag). -15%. - MODERATE
+[-] Bad formation positioning, watch where you place yourself. -5%. - MODERATE
+[-] Cuffed VIP while another guard tried to save the VIP. -15%. - MODERATE
+[-] Didn't cover the VIP fully at the door in CR. -5%. - MODERATE
+[-] Poor shield placement. -5%. - MODERATE
+[-] Held staff outside the dome. -5%. - MODERATE
+[-] Bad formation positioning. - MODERATE
+[-] Extremely bad positioning in formation, watch your spacing. -5%. - MODERATE
+[-] Likewise, bad shield positioning. -5%. - MODERATE
+[-] Moving during lock. -5%. - MODERATE
+[-] Aura waste. -10%. - MODERATE
+[-] A few slight mishaps on the formation commands. - MODERATE
+[-] Didn’t follow the command after someone accidentally followed the one I specifically gave to you. - MODERATE
+[-] Was slow to cuffing a temp VIP trespasser inside. - MODERATE
+[-] Returned to a temp VIP after they had died, without being told to. - MODERATE
+[-] Returned to me just a bit before being given the RET! command. - MODERATE
+[-] Gave out a wrong command to an inductee. - MODERATE
+[-] Failed to react to an evolved mutant coming from his direction that led to all of us getting killed. - MODERATE
+[-] Cuffed an individual being VIP boxed. - MODERATE
+[-] Followed a command I gave to a different individual. - MODERATE
+[-] Didn’t cuff a temp VIP trespasser inside. - MODERATE
+[-] Left me without protection during sloth leading me to die. - MODERATE
+[-] Failed to use aura on me against mutants and raiders. - MODERATE
+[-] Failed to follow threat analysis on a CBRN throwing a grenade at me. - MODERATE
+[-] Broke OOS. - MINOR
+[-] Poor threat analysis. - MODERATE
+[-] No one held aura in hallways. - MAJOR
+[-] Guarded a spy. - MAJOR
+[-] Failed to aura before cuffing for airstrike. - MAJOR
+[-] Killed Supervisor. - EXTREME
+[-] Used aura on himself. - MODERATE
+[-] Failed to aura VIP before cuffing for airstrike. - MAJOR
+[-] Did not help bring a guard with mobility handicap. - MODERATE
+[-] Didn't hold aura in bunker while on the VIP. - MAJOR
+[-] Enforced killzone while DZ was active. - MINOR
+[-] Guarded spy. - MAJOR
+[-] Killed a CBRN when I went up to them. - MODERATE
+[-] Wrong positioning. - MINOR
+[-] Wrongful termination. - MODERATE
+[-] Failed to use aura on me leading me to die. - MAJOR
+[-] Didn't enforced KZ on ayu trespassing it. - MINOR
+[-] Let a spy trespass on my KZ and aim a RPG at me without doing ANYTHING. - MAJOR
+[-] Extremely slow reaction time. - MAJOR
+[-] Did not applied threat analysis on crazy and ayu aiming deadly weapons and grenades at me. - MAJOR
+[-] Did not saw a C4 drone, causing my death once again. - MAJOR
+[-] Used aura on raider. - EXTREME
+[-] Followed third order. - MINOR
+[-] Shield facing a wall. - MINOR
+[-] Didn't followed multiple commands given by the VIP (LWR/WEDGE/SPC/LC). - MODERATE
+[-] Wrong room positioning. - MINOR
+[-] Lost the VIP track too regularly. - MODERATE
+[-] Used aura on a raider. - EXTREME
+[-] Not fixing an inductee that positioned himself incorrectly as pointman. - MINOR
+[-] Wasn't on the VIP during scourge in garage while being pointman. - MINOR
+[-] Not using cuffs on a prisoner. (PB). - MINOR
+[-] Incorrect room scourage in CCTV and Cafeteria. - MODERATE
+[-] Not attacking a KoS civilian nearby the vip. - MAJOR
+[-] Lost the VIP track too often. - MODERATE
+[-] Incorrect shield positioning. - MINOR
+[-] Didn't attacked a KoS civilian nearby. - MAJOR
+[-] Kept his shield during LWR. - MINOR
+[-] Detained the prisoner for way too long. - MINOR
+[-] Left me alone during scourage in garage. - MODERATE
+[-] Did not terminated intruders in Cafeteria/Bunker/Garage. - MODERATE
+[-] Very slow reaction time. - MODERATE
+[-] Didn't enforced KZ on ayu multiple times. (BEFORE DZ). - MODERATE
+[-] Harmed the VIP. - MAJOR
+[-] Terminated someone in a room while DZ was active. - MINOR
+[-] Cuffed someone out of a room instead of terminating him. - MINOR
+[-] Wrong usage of the dispersion system. (Skipped immediatly to the third offence). - MINOR
+[-] Ignored a VIP command. (SPC). - MINOR
+[-] Wrong room scourage. - MINOR
+[-] Terminated the VIP. - EXTREME
+[-] Wrong room positioning (Garage). - MINOR
