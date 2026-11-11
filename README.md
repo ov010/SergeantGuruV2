@@ -45,6 +45,6 @@ color settings panel. Authorization and settings remain in
 
 The API health endpoint is `http://localhost:<PORT>/api/healthz`.
 
-Use `/changelog` for the latest release notes, or `/changelog version:1.1.0`
-for a specific version. Whenever making updates, add a newest-first version
-and date entry with short description bullets to `CHANGELOG.md`.
+Use `/changelog` alone to see all recent updates, newest first. Release history
+starts at 2.0.0; no version option is needed. Whenever making updates, add a
+newest-first version and date entry with short description bullets to `CHANGELOG.md`.

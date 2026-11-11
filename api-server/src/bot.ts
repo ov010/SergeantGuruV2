@@ -1787,26 +1787,22 @@ export function parseChangelog(markdown: string): ChangelogEntry[] {
   return entries;
 }
 
-export function createChangelogEmbed(markdown: string, version?: string | null): EmbedBuilder {
+export function createChangelogEmbed(markdown: string): EmbedBuilder {
   const entries = parseChangelog(markdown);
-  const requested = version?.trim();
-  const entry = requested ? entries.find((item) => item.version === requested) : entries[0];
-  if (!entry) {
-    return makeEmbed("Change Log Unavailable", requested
-      ? "That version was not found in the change log. Use `/changelog` to view the latest release."
-      : "No releases are recorded in the change log yet.", "Warning");
+  if (!entries.length) {
+    return makeEmbed("Change Log Unavailable", "No releases are recorded in the change log yet.", "Warning");
   }
-  const description = [
+  const description = entries.map((entry) => [
     `**${entry.version} - ${entry.date}**`,
     "",
     ...entry.descriptions.map((text) => `- ${text}`),
-  ].join("\n");
+  ].join("\n")).join("\n\n");
   return makeEmbed("Change Log", description.length > 4096 ? `${description.slice(0, 4093)}...` : description, "Info");
 }
 
-export async function loadChangelogEmbed(version?: string | null): Promise<EmbedBuilder> {
+export async function loadChangelogEmbed(): Promise<EmbedBuilder> {
   try {
-    return createChangelogEmbed(await readFile(CHANGELOG_PATH, "utf8"), version);
+    return createChangelogEmbed(await readFile(CHANGELOG_PATH, "utf8"));
   } catch (error) {
     log("Unable to read the change log", error);
     return makeEmbed("Change Log Unavailable", "The change log could not be loaded. Please contact the bot owner.", "Warning");
@@ -1846,10 +1842,7 @@ export const commands = [
   new SlashCommandBuilder().setName("info").setDescription("Show bot statistics and information."),
   new SlashCommandBuilder()
     .setName("changelog")
-    .setDescription("Show release notes for the latest or a specific version.")
-    .addStringOption((option) => option
-      .setName("version")
-      .setDescription("The version to view (for example, 1.1.0)")),
+    .setDescription("Show all recent updates."),
   new SlashCommandBuilder().setName("data").setDescription("Show detailed bot statistics, access, and settings."),
   new SlashCommandBuilder()
     .setName("search")
@@ -1869,7 +1862,7 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
   if (name === "api") return sendApiStatus(interaction);
   if (name === "changelog") {
     if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
-    await interaction.reply({ embeds: [await loadChangelogEmbed(interaction.options.getString("version"))] });
+    await interaction.reply({ embeds: [await loadChangelogEmbed()] });
     return;
   }
   if (name === "grade") {
