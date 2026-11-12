@@ -72,7 +72,7 @@ const BACKGROUND_CHECK_TIMEOUT_MS = 60_000;
 const DATA_DIR = fileURLToPath(new URL("../bot/data/", import.meta.url));
 const CHANGELOG_PATH = fileURLToPath(new URL("../../CHANGELOG.md", import.meta.url));
 const CACHE_DIR = path.join(DATA_DIR, "cache");
-const AUTH_DB_PATH = path.join(DATA_DIR, "authorizations.sqlite3");
+const AUTH_DB_PATH = process.env["BOT_AUTH_DB_PATH"]?.trim() || path.join(DATA_DIR, "authorizations.sqlite3");
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
 const startTime = Date.now();
@@ -115,6 +115,7 @@ const EMBED_ROLES: Record<string, [string, string]> = {
   "Change Embed Colors": ["embed_color_admin_color_menu", "Blurple"],
   "Choose Embed Color": ["embed_color_admin_choose_color", "Blurple"],
   "Rate Limit Exceeded": ["embed_color_rate_limit", "Orange"],
+  "Daily Limit Reached": ["embed_color_daily_limit", "Orange"],
   "Invalid Roblox Username": ["embed_color_invalid_username", "Orange"],
   "Background Check Timed Out": ["embed_color_background_timeout", "Orange"],
   "Could Not Look Up User": ["embed_color_lookup_error", "Orange"],
@@ -158,6 +159,8 @@ const GROUP_IDS = new Set([
 ]);
 
 const db = new DatabaseSync(AUTH_DB_PATH);
+// WAL plus a busy timeout keeps a second process (or a test run) from failing with "database is locked".
+db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
 db.exec(`
   CREATE TABLE IF NOT EXISTS authorized_users (
     discord_user_id TEXT PRIMARY KEY, authorized_by TEXT NOT NULL,
@@ -168,6 +171,13 @@ db.exec(`
     authorized_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
   CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS daily_command_usage (
+    discord_user_id TEXT NOT NULL,
+    usage_day TEXT NOT NULL,
+    command_count INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (discord_user_id, usage_day)
+  );
   CREATE TABLE IF NOT EXISTS grade_feedback (
     normalized_mistake TEXT PRIMARY KEY,
     severity TEXT NOT NULL CHECK (severity IN ('MINOR', 'MODERATE', 'MAJOR', 'EXTREME')),
@@ -1261,6 +1271,72 @@ export const ACCESS_CONTROLLED_COMMANDS: ReadonlySet<string> = new Set([
   "search",
 ]);
 
+// Authorized users get 50 access-controlled commands per UTC day; the owner is exempt.
+export const DAILY_COMMAND_LIMIT = 50;
+
+export interface DailyCommandUsage {
+  allowed: boolean;
+  used: number;
+  limit: number;
+  remaining: number;
+  resetAt: Date;
+}
+
+function utcDay(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function nextUtcMidnight(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1));
+}
+
+export function dailyCommandUsage(userId: string, now = new Date()): DailyCommandUsage {
+  const row = db.prepare(
+    "SELECT command_count AS count FROM daily_command_usage WHERE discord_user_id = ? AND usage_day = ?",
+  ).get(userId, utcDay(now)) as { count: number } | undefined;
+  const used = Number(row?.count ?? 0);
+  return {
+    allowed: used < DAILY_COMMAND_LIMIT,
+    used,
+    limit: DAILY_COMMAND_LIMIT,
+    remaining: Math.max(0, DAILY_COMMAND_LIMIT - used),
+    resetAt: nextUtcMidnight(now),
+  };
+}
+
+export function consumeDailyCommand(userId: string, now = new Date()): DailyCommandUsage {
+  const usage = dailyCommandUsage(userId, now);
+  if (!usage.allowed) return usage;
+  db.prepare(`
+    INSERT INTO daily_command_usage (discord_user_id, usage_day, command_count)
+    VALUES (?, ?, 1)
+    ON CONFLICT(discord_user_id, usage_day) DO UPDATE SET
+      command_count = command_count + 1,
+      updated_at = CURRENT_TIMESTAMP
+  `).run(userId, utcDay(now));
+  return {
+    ...usage,
+    allowed: true,
+    used: usage.used + 1,
+    remaining: Math.max(0, usage.remaining - 1),
+  };
+}
+
+export function resetDailyCommandUsage(userId: string): void {
+  db.prepare("DELETE FROM daily_command_usage WHERE discord_user_id = ?").run(userId);
+}
+
+function createDailyLimitEmbed(usage: DailyCommandUsage): EmbedBuilder {
+  return makeEmbed(
+    "Daily Limit Reached",
+    `You have used all **${usage.limit}** commands for today. Your limit resets ${discordTimestamp(usage.resetAt, "R")}.`,
+    "Warning",
+  ).addFields(
+    { name: "Used Today", value: `${usage.used}/${usage.limit}`, inline: true },
+    { name: "Resets", value: discordTimestamp(usage.resetAt, "D"), inline: true },
+  );
+}
+
 type InteractionLogEntry = {
   action: string;
   access: string;
@@ -1280,14 +1356,15 @@ export function createInteractionLogEmbed(entry: InteractionLogEntry): EmbedBuil
     .addFields(
       { name: "Action", value: entry.action.slice(0, 1024), inline: true },
       { name: "Access", value: entry.access.toUpperCase(), inline: true },
-      { name: "User", value: entry.user, inline: true },
+      { name: "User", value: `<@${entry.userId}>`, inline: true },
       { name: "User ID", value: entry.userId, inline: true },
       { name: "Server", value: entry.server, inline: true },
       { name: "Channel", value: entry.channel, inline: true },
       { name: "Interaction ID", value: entry.interactionId, inline: true },
       { name: "Message Link", value: entry.messageLink.slice(0, 1024), inline: true },
     )
-    .setFooter({ text: footer() });
+    // Keep the raw username in the footer so /search still matches it after "User" became a mention.
+    .setFooter({ text: `${footer()} | User: ${entry.user}` });
   if (entry.changed) embed.addFields({ name: "Changed", value: entry.changed.slice(0, 1024), inline: false });
   return embed;
 }
@@ -1304,6 +1381,7 @@ async function interactionMessageLink(interaction: Interaction): Promise<string>
 }
 
 const adminInteractionChanges = new WeakMap<Interaction, string>();
+const commandGateOutcomes = new WeakMap<Interaction, "allowed" | "denied" | "limited">();
 
 function isAdminInteraction(interaction: Interaction): boolean {
   if (interaction.isChatInputCommand()) return interaction.commandName === "admin";
@@ -1326,7 +1404,8 @@ async function logInteractionAttempt(interaction: Interaction): Promise<void> {
   if (interaction.isChatInputCommand()) {
     const subcommand = interaction.options.getSubcommand(false);
     action = `/${interaction.commandName}${subcommand ? ` ${subcommand}` : ""}`;
-    access = !ACCESS_CONTROLLED_COMMANDS.has(interaction.commandName) || isCommandAuthorized(interaction) ? "allowed" : "denied";
+    access = commandGateOutcomes.get(interaction)
+      ?? (!ACCESS_CONTROLLED_COMMANDS.has(interaction.commandName) || isCommandAuthorized(interaction) ? "allowed" : "denied");
   } else if (interaction.isButton()) {
     action = `button:${interaction.customId}`;
     if (interaction.customId === "advanced-badge-tracking") {
@@ -1874,7 +1953,19 @@ export const commands = [
 
 async function handleCommand(interaction: ChatInputCommandInteraction): Promise<void> {
   const name = interaction.commandName;
-  if (ACCESS_CONTROLLED_COMMANDS.has(name) && !isCommandAuthorized(interaction)) return replyDenied(interaction);
+  if (ACCESS_CONTROLLED_COMMANDS.has(name) && !isCommandAuthorized(interaction)) {
+    commandGateOutcomes.set(interaction, "denied");
+    return replyDenied(interaction);
+  }
+  if (ACCESS_CONTROLLED_COMMANDS.has(name) && !isOwner(interaction.user.id)) {
+    const usage = consumeDailyCommand(interaction.user.id);
+    if (!usage.allowed) {
+      commandGateOutcomes.set(interaction, "limited");
+      await interaction.reply({ embeds: [createDailyLimitEmbed(usage)] });
+      return;
+    }
+  }
+  commandGateOutcomes.set(interaction, "allowed");
   if (name === "background" && interaction.options.getSubcommand() === "check") return sendBackgroundCheck(interaction, interaction.options.getString("username", true));
   if (name === "badge" && interaction.options.getSubcommand() === "count") return sendBadgeCount(interaction, interaction.options.getString("username", true));
   if (name === "groups") return sendGroups(interaction, interaction.options.getString("username", true));
@@ -1929,6 +2020,7 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
         robloxCloud: Boolean(robloxApiKey),
         xtracker: Boolean(xtrackerApiKey),
         ollama,
+        dailyUsage: isOwner(interaction.user.id) ? null : dailyCommandUsage(interaction.user.id),
       })],
     });
     return;
@@ -1991,10 +2083,12 @@ export function matchesInteractionLog(
   const userId = fieldValue("User ID");
   const username = fieldValue("User").toLowerCase();
   const footerId = /\bID: (\d+)(?:$|\s)/.exec(embed.footer?.text ?? "")?.[1];
+  // Newer logs show a mention in "User"; the raw username lives in the footer so search keeps working.
+  const footerUsername = /\| User: (\S+)/.exec(embed.footer?.text ?? "")?.[1]?.toLowerCase();
 
   return /^\d+$/.test(normalizedQuery)
     ? interactionId === normalizedQuery || userId === normalizedQuery || footerId === normalizedQuery
-    : username === normalizedQuery;
+    : username === normalizedQuery || footerUsername === normalizedQuery;
 }
 
 async function findInteractionLogs(query: string): Promise<{ messages: import("discord.js").Message[]; scanned: number }> {
@@ -2390,6 +2484,8 @@ export interface InfoSnapshot {
   robloxCloud: boolean;
   xtracker: boolean;
   ollama: ApiCheck;
+  /** Null for the owner, who is exempt from the daily command limit. */
+  dailyUsage: DailyCommandUsage | null;
 }
 
 export function createInfoEmbed(info: InfoSnapshot): EmbedBuilder {
@@ -2399,6 +2495,13 @@ export function createInfoEmbed(info: InfoSnapshot): EmbedBuilder {
     { name: "Servers", value: String(info.servers), inline: true },
     { name: "Total Users", value: info.totalUsers.toLocaleString(), inline: true },
     { name: "Uptime", value: formatUptime(info.uptimeSeconds), inline: true },
+    {
+      name: "Daily Commands",
+      value: info.dailyUsage
+        ? `${info.dailyUsage.used}/${info.dailyUsage.limit} used\n${info.dailyUsage.remaining} left ${discordTimestamp(info.dailyUsage.resetAt, "R")}`
+        : "Unlimited (owner)",
+      inline: true,
+    },
     { name: "Slash Commands", value: String(info.commandCount), inline: true },
     { name: "Authorized Users", value: String(info.authorizedUsers), inline: true },
     { name: "Authorized Roles", value: String(info.authorizedRoles), inline: true },
@@ -2855,6 +2958,7 @@ process.once("SIGTERM", () => void shutdown("SIGTERM"));
 process.once("SIGINT", () => void shutdown("SIGINT"));
 const cleanupTimer = setInterval(() => {
   void cleanupCache().catch((error) => log("Cache cleanup failed", error));
+  db.prepare("DELETE FROM daily_command_usage WHERE usage_day < ?").run(utcDay(new Date(Date.now() - 31 * 24 * 60 * 60 * 1000)));
   const cutoff = Date.now() - 60 * 60 * 1000;
   for (const [id, times] of userRequests) {
     const remaining = times.filter((time) => time > cutoff);

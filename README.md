@@ -41,8 +41,10 @@ support guild install and user install, so they can also be used in Discord
 DMs. DM use requires **Guild Install** and **User Install** to be enabled under
 the application's **Installation** settings in the Discord Developer Portal.
 `/api` runs live reachability checks for Discord, Roblox, XTracker,
-Google Sheets, and Ollama. The owner can use `/admin` to open the access and
-color settings panel. Authorization and settings remain in
+Google Sheets, and Ollama. Each authorized user can run 50 access-controlled
+commands per UTC day; the owner is exempt and `/info` shows what is left. The
+owner can use `/admin` to open the access and color settings panel.
+Authorization, daily usage, and settings remain in
 `api-server/bot/data/authorizations.sqlite3`.
 
 The API health endpoint is `http://localhost:<PORT>/api/healthz`.

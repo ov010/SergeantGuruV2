@@ -1,5 +1,9 @@
 # Change Log
 
+## 2.2.0 - 2026-11-13
+- Authorized users can run 50 access-controlled commands per UTC day; the owner is exempt and `/info` shows the remaining allowance.
+- Interaction log embeds show the user as a clickable mention, and `/search` still matches usernames via the footer.
+
 ## 2.1.1 - 2026-11-13
 - `/info` and the `/data` Bot & API view show the running build version, so a stale process is obvious.
 - The bot prints its version when it connects, and `/api/healthz` reports it too.

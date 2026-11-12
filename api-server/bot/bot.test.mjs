@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { ApplicationIntegrationType, InteractionContextType } from "discord.js";
 
 process.env["NODE_ENV"] = "test";
 process.env["DISCORD_BOT_TOKEN"] = "test-token";
 process.env["ROBLOX_OPEN_CLOUD_API_KEY"] = "test-key";
+// Each test process gets its own database so parallel test files never lock the real one.
+process.env["BOT_AUTH_DB_PATH"] = path.join(tmpdir(), `sgh-bot-test-${process.pid}.sqlite3`);
 
 const {
   ACCESS_CONTROLLED_COMMANDS,
@@ -29,6 +33,9 @@ const {
   createGradingFeedbackLogEmbed,
   createGroupsEmbed,
   createInteractionLogEmbed,
+  DAILY_COMMAND_LIMIT,
+  consumeDailyCommand,
+  resetDailyCommandUsage,
   DATA_VIEW_LABELS,
   formatHostRatingReport,
   makeBadgeChart,
@@ -169,6 +176,33 @@ test("every command except the public admin panel requires granted access", () =
   }
 });
 
+test("authorized users get exactly 50 commands per UTC day", () => {
+  const userId = "999999999999999999";
+  const firstDay = new Date("2099-01-01T12:00:00Z");
+  resetDailyCommandUsage(userId);
+  try {
+    for (let used = 1; used <= DAILY_COMMAND_LIMIT; used += 1) {
+      const usage = consumeDailyCommand(userId, firstDay);
+      assert.equal(usage.allowed, true, `command ${used} should be allowed`);
+      assert.equal(usage.used, used);
+      assert.equal(usage.remaining, DAILY_COMMAND_LIMIT - used);
+    }
+
+    const blocked = consumeDailyCommand(userId, firstDay);
+    assert.equal(blocked.allowed, false, "command 51 must be blocked");
+    assert.equal(blocked.used, DAILY_COMMAND_LIMIT);
+    assert.equal(blocked.remaining, 0);
+    assert.equal(blocked.resetAt.toISOString(), "2099-01-02T00:00:00.000Z");
+
+    const nextDay = consumeDailyCommand(userId, new Date("2099-01-02T00:00:01Z"));
+    assert.equal(nextDay.allowed, true, "the quota resets at UTC midnight");
+    assert.equal(nextDay.used, 1);
+    assert.equal(nextDay.remaining, DAILY_COMMAND_LIMIT - 1);
+  } finally {
+    resetDailyCommandUsage(userId);
+  }
+});
+
 test("/info reports live Ollama status alongside the other integrations", () => {
   const embed = createInfoEmbed({
     pingMs: 42,
@@ -184,10 +218,18 @@ test("/info reports live Ollama status alongside the other integrations", () => 
     robloxCloud: true,
     xtracker: false,
     ollama: { name: "Ollama (grading AI)", state: "Online", detail: "qwen2.5:0.5b", latencyMs: 8 },
+    dailyUsage: {
+      allowed: true,
+      used: 7,
+      limit: DAILY_COMMAND_LIMIT,
+      remaining: DAILY_COMMAND_LIMIT - 7,
+      resetAt: new Date("2026-11-14T00:00:00Z"),
+    },
   }).toJSON();
   const ollama = embed.fields.find(({ name }) => name === "Ollama (grading AI)");
   assert.ok(ollama, "/info must show Ollama status");
   assert.equal(ollama.value, "Online — qwen2.5:0.5b\n8ms");
+  assert.match(embed.fields.find(({ name }) => name === "Daily Commands").value, /^7\/50 used/);
   assert.equal(embed.fields.find(({ name }) => name === "Version").value, BOT_VERSION);
   assert.equal(embed.fields.find(({ name }) => name === "Ping").value, "42ms");
   assert.equal(embed.fields.find(({ name }) => name === "Uptime").value, "1h 0s");
@@ -314,8 +356,9 @@ test("interaction log embeds use the same fields for allowed and denied access",
   assert.deepEqual(denied.fields.map(({ name }) => name), expectedFieldNames);
   assert.equal(allowed.fields[1].value, "ALLOWED");
   assert.equal(denied.fields[1].value, "DENIED");
-  assert.equal(allowed.fields[2].value, "guru_guru1x");
+  assert.equal(allowed.fields[2].value, `<@${fields.userId}>`);
   assert.equal(allowed.fields[3].value, fields.userId);
+  assert.match(allowed.footer.text, /\| User: guru_guru1x$/);
   assert.equal(allowed.fields[7].value, fields.messageLink);
   assert.ok(allowed.fields.every(({ inline }) => inline === true));
   assert.ok(denied.fields.every(({ inline }) => inline === true));

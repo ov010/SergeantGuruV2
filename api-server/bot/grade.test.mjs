@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
@@ -42,6 +44,7 @@ test("bot initializes its Discord client and persistent authorization database w
       NODE_ENV: "test",
       DISCORD_BOT_TOKEN: "test-token",
       ROBLOX_OPEN_CLOUD_API_KEY: "test-key",
+      BOT_AUTH_DB_PATH: path.join(tmpdir(), `sgh-grade-test-${process.pid}.sqlite3`),
     },
     stdio: "pipe",
   });
