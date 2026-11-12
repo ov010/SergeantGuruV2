@@ -1,0 +1,8 @@
+# Keep the repository in LF so diffs stay minimal regardless of the editor.
+* text=auto eol=lf
+*.bat text eol=crlf
+
+# Binary assets are never normalized.
+*.png binary
+*.gz binary
+*.sqlite3 binary
