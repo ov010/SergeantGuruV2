@@ -1,6 +1,6 @@
 {
   "name": "sergeantguruv2",
-  "version": "2.0.3",
+  "version": "2.1.0",
   "private": true,
   "scripts": {
     "start": "node api-server/build.mjs && node --env-file=.env --enable-source-maps api-server/dist/index.mjs"

@@ -1246,6 +1246,19 @@ function isCommandAuthorized(interaction: ChatInputCommandInteraction): boolean 
   return isInteractionAuthorized(interaction);
 }
 
+// Every slash command except /admin (the public admin panel) requires access granted from that panel.
+export const ACCESS_CONTROLLED_COMMANDS: ReadonlySet<string> = new Set([
+  "background",
+  "badge",
+  "groups",
+  "grade",
+  "api",
+  "info",
+  "changelog",
+  "data",
+  "search",
+]);
+
 type InteractionLogEntry = {
   action: string;
   access: string;
@@ -1311,18 +1324,21 @@ async function logInteractionAttempt(interaction: Interaction): Promise<void> {
   if (interaction.isChatInputCommand()) {
     const subcommand = interaction.options.getSubcommand(false);
     action = `/${interaction.commandName}${subcommand ? ` ${subcommand}` : ""}`;
-    access = interaction.commandName === "admin" || isCommandAuthorized(interaction) ? "allowed" : "denied";
+    access = !ACCESS_CONTROLLED_COMMANDS.has(interaction.commandName) || isCommandAuthorized(interaction) ? "allowed" : "denied";
   } else if (interaction.isButton()) {
     action = `button:${interaction.customId}`;
     if (interaction.customId === "advanced-badge-tracking") {
       const tracking = badgeTrackingByMessage.get(interaction.message.id);
-      access = !tracking ? "expired" : tracking.requesterId === interaction.user.id ? "allowed" : "denied";
+      access = !tracking
+        ? "expired"
+        : tracking.requesterId === interaction.user.id && isInteractionAuthorized(interaction) ? "allowed" : "denied";
     } else if (isGradeFeedbackId(interaction.customId)) {
       access = isInteractionAuthorized(interaction) ? "allowed" : "denied";
     }
   } else if (interaction.isStringSelectMenu()) {
     action = `select:${interaction.customId}${interaction.values.length ? `:${interaction.values.join(",")}` : ""}`;
     if (interaction.customId === "admin-panel") access = isOwner(interaction.user.id) ? "allowed" : "denied";
+    else if (interaction.customId === "data-view") access = isInteractionAuthorized(interaction) ? "allowed" : "denied";
     else if (interaction.customId.startsWith("admin-color-target") || interaction.customId.startsWith("admin-color-value:")) {
       access = isOwner(interaction.user.id) ? "allowed" : "denied";
     }
@@ -1856,6 +1872,7 @@ export const commands = [
 
 async function handleCommand(interaction: ChatInputCommandInteraction): Promise<void> {
   const name = interaction.commandName;
+  if (ACCESS_CONTROLLED_COMMANDS.has(name) && !isCommandAuthorized(interaction)) return replyDenied(interaction);
   if (name === "background" && interaction.options.getSubcommand() === "check") return sendBackgroundCheck(interaction, interaction.options.getString("username", true));
   if (name === "badge" && interaction.options.getSubcommand() === "count") return sendBadgeCount(interaction, interaction.options.getString("username", true));
   if (name === "groups") return sendGroups(interaction, interaction.options.getString("username", true));
@@ -1890,41 +1907,36 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
     return;
   }
   if (name === "info") {
-    if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
     const stats = db.prepare("SELECT (SELECT COUNT(*) FROM authorized_users) AS users, (SELECT COUNT(*) FROM authorized_roles) AS roles").get() as JsonObject;
     let robloxOnline = false;
     try { robloxOnline = (await requestJson(`${ROBLOX_USERS}/users/1`)).ok; } catch {}
+    const ollama = await checkOllama();
     const guilds = client.guilds.cache;
-    const memoryMb = process.memoryUsage().rss / 1024 / 1024;
-    const description = commandDescriptions().join("\n");
-    const embed = makeEmbed("Bot Information", description, "Info").addFields(
-      { name: "Ping", value: `${Math.round(client.ws.ping)}ms`, inline: true },
-      { name: "Servers", value: String(guilds.size), inline: true },
-      { name: "Total Users", value: guilds.reduce((sum, guild) => sum + (guild.memberCount ?? 0), 0).toLocaleString(), inline: true },
-      { name: "Uptime", value: formatUptime((Date.now() - startTime) / 1000), inline: true },
-      { name: "Slash Commands", value: String(commands.length), inline: true },
-      { name: "Authorized Users", value: String(stats.users), inline: true },
-      { name: "Authorized Roles", value: String(stats.roles), inline: true },
-      { name: "Bot ID", value: client.user?.id ?? NONE, inline: true },
-      { name: "Platform", value: `${process.platform} ${process.arch}`, inline: true },
-      { name: "Node.js", value: process.version, inline: true },
-      { name: "discord.js", value: "v14", inline: true },
-      { name: "Memory", value: `${memoryMb.toFixed(1)} MB`, inline: true },
-      { name: "Roblox Public API", value: robloxOnline ? "OK" : "N/A", inline: true },
-      { name: "Roblox Open Cloud Key", value: robloxApiKey ? "OK" : "N/A", inline: true },
-      { name: "[x]Tracker API", value: xtrackerApiKey ? "OK" : "N/A", inline: true },
-    );
-    await interaction.reply({ embeds: [embed] });
+    await interaction.reply({
+      embeds: [createInfoEmbed({
+        pingMs: Math.round(client.ws.ping),
+        servers: guilds.size,
+        totalUsers: guilds.reduce((sum, guild) => sum + (guild.memberCount ?? 0), 0),
+        uptimeSeconds: (Date.now() - startTime) / 1000,
+        commandCount: commands.length,
+        authorizedUsers: Number(stats["users"] ?? 0),
+        authorizedRoles: Number(stats["roles"] ?? 0),
+        botId: client.user?.id ?? NONE,
+        memoryMb: process.memoryUsage().rss / 1024 / 1024,
+        robloxOnline,
+        robloxCloud: Boolean(robloxApiKey),
+        xtracker: Boolean(xtrackerApiKey),
+        ollama,
+      })],
+    });
+    return;
   }
   if (name === "data") {
-    if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
-    let robloxApiOnline = false;
-    try {
-      robloxApiOnline = (await requestJson(`${ROBLOX_USERS}/users/1`)).ok;
-    } catch (error) {
-      log("Roblox API status check failed while building /data", error);
-    }
-    await interaction.reply({ embeds: [createDataEmbed(robloxApiOnline)] });
+    await interaction.reply({
+      embeds: [createDataEmbed("overview")],
+      components: [createDataViewMenu("overview")],
+    });
+    return;
   }
   if (name === "search") {
     if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
@@ -2041,6 +2053,12 @@ function apiStateIcon(state: ApiState): string {
   if (state === "Online") return "🟢";
   if (state === "Offline") return "🔴";
   return "🟡";
+}
+
+function apiCheckSummary(check: ApiCheck): string {
+  const detail = check.detail ? ` — ${check.detail}` : "";
+  const latency = check.latencyMs !== undefined ? `\n${check.latencyMs}ms` : "";
+  return `${check.state}${detail}${latency}`;
 }
 
 function errorDetail(error: unknown): string {
@@ -2179,19 +2197,121 @@ function formatDataList(lines: string[], total: number): string {
   return `… ${total} entries (embed limit)`.slice(0, 1024);
 }
 
-export function createDataEmbed(robloxApiOnline: boolean): EmbedBuilder {
-  const authorizedUsers = db.prepare("SELECT discord_user_id FROM authorized_users ORDER BY discord_user_id").all() as Array<{ discord_user_id: string }>;
-  const authorizedRoles = db.prepare("SELECT discord_role_id FROM authorized_roles ORDER BY discord_role_id").all() as Array<{ discord_role_id: string }>;
-  const gradeFeedbackCount = (db.prepare("SELECT COUNT(*) AS count FROM grade_feedback").get() as { count: number }).count;
+export type DataView = "overview" | "access" | "bot" | "colors";
+
+export const DATA_VIEW_LABELS: Record<DataView, string> = {
+  overview: "Overview",
+  access: "Access & Statistics",
+  bot: "Bot & API",
+  colors: "Embed Colors",
+};
+
+export interface DataStatus {
+  robloxApiOnline?: boolean;
+  ollama?: ApiCheck;
+}
+
+export function createDataViewMenu(selected: DataView = "overview"): ActionRowBuilder<StringSelectMenuBuilder> {
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId("data-view")
+    .setPlaceholder(`Viewing ${DATA_VIEW_LABELS[selected]}`)
+    .addOptions((Object.keys(DATA_VIEW_LABELS) as DataView[]).map((view) => ({
+      label: DATA_VIEW_LABELS[view],
+      value: view,
+      ...(view === selected ? { default: true } : {}),
+    })));
+  return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
+}
+
+export async function collectDataStatus(): Promise<DataStatus> {
+  let robloxApiOnline = false;
+  try {
+    robloxApiOnline = (await requestJson(`${ROBLOX_USERS}/users/1`)).ok;
+  } catch (error) {
+    log("Roblox API status check failed while building /data", error);
+  }
+  return { robloxApiOnline, ollama: await checkOllama() };
+}
+
+export function createDataEmbed(view: DataView = "overview", status: DataStatus = {}): EmbedBuilder {
+  if (view === "access") return createDataAccessEmbed();
+  if (view === "bot") return createDataBotEmbed(status);
+  if (view === "colors") return createDataColorEmbed();
+  return createDataOverviewEmbed();
+}
+
+function authorizedUserLines(): string[] {
+  const rows = db.prepare("SELECT discord_user_id FROM authorized_users ORDER BY discord_user_id").all() as Array<{ discord_user_id: string }>;
+  return rows.map(({ discord_user_id }) => {
+    const user = client.users.cache.get(discord_user_id);
+    return `${user?.tag ?? "Unknown user"} — ${discord_user_id}`;
+  });
+}
+
+function authorizedRoleLines(): string[] {
+  const rows = db.prepare("SELECT discord_role_id FROM authorized_roles ORDER BY discord_role_id").all() as Array<{ discord_role_id: string }>;
+  const guilds = client.guilds.cache;
+  return rows.map(({ discord_role_id }) => {
+    const names = guilds
+      .map((guild) => guild.roles.cache.get(discord_role_id)?.name)
+      .filter((name): name is string => Boolean(name));
+    const roleName = [...new Set(names)].join(", ").slice(0, 300) || "Unknown role";
+    return `${roleName} — ${discord_role_id}`;
+  });
+}
+
+function savedGradingCorrectionCount(): number {
+  return (db.prepare("SELECT COUNT(*) AS count FROM grade_feedback").get() as { count: number }).count;
+}
+
+function createDataOverviewEmbed(): EmbedBuilder {
+  const users = authorizedUserLines();
+  const roles = authorizedRoleLines();
+  return makeEmbed(
+    "Bot Data",
+    [
+      "Choose a view from the menu: **Access & Statistics**, **Bot & API**, or **Embed Colors**.",
+      "",
+      ...commands.map((command) => `• **/${command.name}** — ${command.description}`),
+    ].join("\n"),
+    "Info",
+  ).addFields(
+    { name: "Authorized Users", value: String(users.length), inline: true },
+    { name: "Authorized Roles", value: String(roles.length), inline: true },
+    { name: "Saved Grading Corrections", value: String(savedGradingCorrectionCount()), inline: true },
+    { name: "Servers", value: String(client.guilds.cache.size), inline: true },
+  );
+}
+
+function createDataAccessEmbed(): EmbedBuilder {
+  const users = authorizedUserLines();
+  const roles = authorizedRoleLines();
+  return makeEmbed(
+    "Bot Data",
+    "Access is granted from `/admin`. Everyone listed here can run the access-controlled commands.",
+    "Info",
+  ).addFields(
+    {
+      name: "Access",
+      value: [
+        `Authorized users: ${users.length}`,
+        `Authorized roles: ${roles.length}`,
+        `Saved grading corrections: ${savedGradingCorrectionCount()}`,
+        `Active badge results: ${badgeTrackingByMessage.size}`,
+      ].join("\n"),
+      inline: false,
+    },
+    { name: "Authorized Users", value: formatDataList(users, users.length) },
+    { name: "Authorized Roles", value: formatDataList(roles, roles.length) },
+  );
+}
+
+function createDataBotEmbed(status: DataStatus): EmbedBuilder {
   const guilds = client.guilds.cache;
   const memberCount = guilds.reduce((sum, guild) => sum + (guild.memberCount ?? 0), 0);
   const recentRequestCount = [...userRequests.values()]
     .reduce((sum, timestamps) => sum + timestamps.filter((timestamp) => timestamp > Date.now() - 60_000).length, 0);
-  const embed = makeEmbed(
-    "Bot Data",
-    commands.map((command) => `• **/${command.name}** — ${command.description}`).join("\n"),
-    "Info",
-  ).addFields(
+  return makeEmbed("Bot Data", "Runtime, Discord gateway, and live integration status.", "Info").addFields(
     {
       name: "Runtime",
       value: [
@@ -2215,62 +2335,79 @@ export function createDataEmbed(robloxApiOnline: boolean): EmbedBuilder {
       inline: true,
     },
     {
+      name: "Integrations",
+      value: [
+        `Roblox Public API: ${status.robloxApiOnline ? "Online" : "Unavailable"}`,
+        `Roblox Open Cloud: ${robloxApiKey ? "Configured" : "Not configured"}`,
+        `[x]Tracker: ${xtrackerApiKey ? "Configured" : "Not configured"}`,
+        `Ollama (grading AI): ${status.ollama ? apiCheckSummary(status.ollama) : "Not checked"}`,
+        `Grading AI model: ${gradingAiModel}`,
+      ].join("\n"),
+      inline: true,
+    },
+    {
       name: "Activity",
       value: [
         `Requests (last minute): ${recentRequestCount}`,
         `Active badge results: ${badgeTrackingByMessage.size}`,
-        `Saved grading corrections: ${gradeFeedbackCount}`,
       ].join("\n"),
       inline: true,
     },
-    {
-      name: "Access",
-      value: `Authorized users: ${authorizedUsers.length}\nAuthorized roles: ${authorizedRoles.length}`,
-      inline: true,
-    },
   );
+}
 
-  const userLines = authorizedUsers.map(({ discord_user_id }) => {
-    const user = client.users.cache.get(discord_user_id);
-    return `${user?.tag ?? "Unknown user"} — ${discord_user_id}`;
-  });
-  const roleLines = authorizedRoles.map(({ discord_role_id }) => {
-    const names = guilds
-      .map((guild) => guild.roles.cache.get(discord_role_id)?.name)
-      .filter((name): name is string => Boolean(name));
-    const roleName = [...new Set(names)].join(", ").slice(0, 300) || "Unknown role";
-    return `${roleName} — ${discord_role_id}`;
-  });
-  const embedColorLines = [
+function createDataColorEmbed(): EmbedBuilder {
+  const colorLines = [
     `Badge Chart: ${getSetting("chart_color", DEFAULT_CHART_COLOR)}`,
     ...Object.entries(EMBED_ROLES).map(([role, [key, fallback]]) => `${role}: ${getSetting(key, fallback)}`),
   ];
-  const embedColorFields = Array.from({ length: Math.ceil(embedColorLines.length / 12) }, (_, index) => ({
+  const colorFields = Array.from({ length: Math.ceil(colorLines.length / 12) }, (_, index) => ({
     name: index ? `Embed Colors (${index + 1})` : "Embed Colors",
-    value: embedColorLines.slice(index * 12, (index + 1) * 12).join("\n"),
+    value: colorLines.slice(index * 12, (index + 1) * 12).join("\n"),
     inline: true,
   }));
-  embed.addFields(
-    { name: "Authorized Users", value: formatDataList(userLines, authorizedUsers.length) },
-    { name: "Authorized Roles", value: formatDataList(roleLines, authorizedRoles.length) },
-    ...embedColorFields,
-    {
-      name: "Rotating Presence",
-      value: formatDataList(getPresenceActivities(), getPresenceActivities().length),
-      inline: true,
-    },
-    {
-      name: "Integrations",
-      value: [
-        `Roblox Public API: ${robloxApiOnline ? "Online" : "Unavailable"}`,
-        `Roblox Open Cloud: ${robloxApiKey ? "Configured" : "Not configured"}`,
-        `[x]Tracker: ${xtrackerApiKey ? "Configured" : "Not configured"}`,
-        `Grading AI: ${gradingAiModel} (local endpoint configured)`,
-      ].join("\n"),
-      inline: true,
-    },
+  const activities = getPresenceActivities();
+  return makeEmbed("Bot Data", "Change these from `/admin` → **Change colors**.", "Info").addFields(
+    ...colorFields,
+    { name: "Rotating Presence", value: formatDataList(activities, activities.length), inline: true },
   );
-  return embed;
+}
+
+export interface InfoSnapshot {
+  pingMs: number;
+  servers: number;
+  totalUsers: number;
+  uptimeSeconds: number;
+  commandCount: number;
+  authorizedUsers: number;
+  authorizedRoles: number;
+  botId: string;
+  memoryMb: number;
+  robloxOnline: boolean;
+  robloxCloud: boolean;
+  xtracker: boolean;
+  ollama: ApiCheck;
+}
+
+export function createInfoEmbed(info: InfoSnapshot): EmbedBuilder {
+  return makeEmbed("Bot Information", commandDescriptions().join("\n"), "Info").addFields(
+    { name: "Ping", value: `${info.pingMs}ms`, inline: true },
+    { name: "Servers", value: String(info.servers), inline: true },
+    { name: "Total Users", value: info.totalUsers.toLocaleString(), inline: true },
+    { name: "Uptime", value: formatUptime(info.uptimeSeconds), inline: true },
+    { name: "Slash Commands", value: String(info.commandCount), inline: true },
+    { name: "Authorized Users", value: String(info.authorizedUsers), inline: true },
+    { name: "Authorized Roles", value: String(info.authorizedRoles), inline: true },
+    { name: "Bot ID", value: info.botId, inline: true },
+    { name: "Platform", value: `${process.platform} ${process.arch}`, inline: true },
+    { name: "Node.js", value: process.version, inline: true },
+    { name: "discord.js", value: "v14", inline: true },
+    { name: "Memory", value: `${info.memoryMb.toFixed(1)} MB`, inline: true },
+    { name: "Roblox Public API", value: info.robloxOnline ? "OK" : "N/A", inline: true },
+    { name: "Roblox Open Cloud Key", value: info.robloxCloud ? "OK" : "N/A", inline: true },
+    { name: "[x]Tracker API", value: info.xtracker ? "OK" : "N/A", inline: true },
+    { name: "Ollama (grading AI)", value: apiCheckSummary(info.ollama), inline: true },
+  );
 }
 
 client.on("interactionCreate", async (interaction) => {
@@ -2282,6 +2419,10 @@ client.on("interactionCreate", async (interaction) => {
       const tracking = badgeTrackingByMessage.get(interaction.message.id);
       if (!tracking) {
         await interaction.reply({ embeds: [makeEmbed("Badge Tracking Expired", "This badge-tracking result has expired. Run the background check again.", "Warning")] });
+        return;
+      }
+      if (!isInteractionAuthorized(interaction)) {
+        await interaction.reply({ embeds: [deniedEmbed("Ask the bot owner to grant access.")] });
         return;
       }
       if (interaction.user.id !== tracking.requesterId) {
@@ -2389,6 +2530,19 @@ client.on("interactionCreate", async (interaction) => {
           "Success",
         )],
         components: [],
+      });
+    } else if (interaction.isStringSelectMenu() && interaction.customId === "data-view") {
+      if (!isInteractionAuthorized(interaction)) {
+        await interaction.reply({ embeds: [deniedEmbed("Ask the bot owner to grant access.")] });
+        return;
+      }
+      const view = interaction.values[0];
+      if (!view || !Object.hasOwn(DATA_VIEW_LABELS, view)) throw new BotError("Choose a valid data view.");
+      const dataView = view as DataView;
+      const status = dataView === "bot" ? await collectDataStatus() : {};
+      await interaction.update({
+        embeds: [createDataEmbed(dataView, status)],
+        components: [createDataViewMenu(dataView)],
       });
     } else if (interaction.isStringSelectMenu() && interaction.customId.startsWith("grade-event:")) {
       const ownerId = interaction.customId.slice("grade-event:".length);

@@ -8,6 +8,7 @@ process.env["DISCORD_BOT_TOKEN"] = "test-token";
 process.env["ROBLOX_OPEN_CLOUD_API_KEY"] = "test-key";
 
 const {
+  ACCESS_CONTROLLED_COMMANDS,
   altRisk,
   blendAltRisk,
   commandDescriptions,
@@ -22,9 +23,12 @@ const {
   createColorMenu,
   createColorTargetMenu,
   createDataEmbed,
+  createDataViewMenu,
+  createInfoEmbed,
   createGradingFeedbackLogEmbed,
   createGroupsEmbed,
   createInteractionLogEmbed,
+  DATA_VIEW_LABELS,
   formatHostRatingReport,
   makeBadgeChart,
   matchesInteractionLog,
@@ -107,29 +111,82 @@ test("/info lists full command names including subcommands", () => {
   assert.ok(lines.some((line) => line.startsWith("• **/grade**")));
 });
 
-test("/data consolidates overview, access lists, and settings into one embed", () => {
-  const embed = createDataEmbed(true).toJSON();
-  const fields = embed.fields.map(({ name }) => name);
-  assert.equal(embed.title, "Bot Data");
-  assert.ok(fields.includes("Runtime"));
-  assert.ok(fields.includes("Discord"));
-  assert.ok(fields.includes("Activity"));
-  assert.ok(fields.includes("Access"));
-  assert.ok(fields.includes("Authorized Users"));
-  assert.ok(fields.includes("Authorized Roles"));
-  assert.ok(fields.includes("Embed Colors"));
-  assert.ok(fields.includes("Rotating Presence"));
-  assert.ok(fields.includes("Integrations"));
-  assert.doesNotMatch(embed.fields.find(({ name }) => name === "Integrations").value, /Trello/);
-  assert.match(embed.fields.find(({ name }) => name === "Discord").value, /Ping:/);
-  assert.ok(embed.description.includes("**/data**"));
-  assert.ok(embed.fields.length <= 25);
-  const totalCharacters = embed.title.length
-    + embed.description.length
-    + embed.fields.reduce((sum, field) => sum + field.name.length + field.value.length, 0)
-    + embed.footer.text.length;
-  assert.ok(totalCharacters <= 6000);
-  assert.ok(embed.fields.every(({ value }) => value.length <= 1024));
+test("/data opens separate views for access, bot/API, and colors", () => {
+  const menu = createDataViewMenu("access").toJSON().components[0];
+  assert.equal(menu.custom_id, "data-view");
+  assert.deepEqual(menu.options.map(({ value }) => value), ["overview", "access", "bot", "colors"]);
+  assert.deepEqual(menu.options.map(({ label }) => label), Object.values(DATA_VIEW_LABELS));
+  assert.ok(menu.options.find(({ value }) => value === "access").default);
+
+  const overview = createDataEmbed("overview").toJSON();
+  assert.equal(overview.title, "Bot Data");
+  assert.ok(overview.description.includes("**/data**"));
+  assert.ok(overview.fields.some(({ name }) => name === "Authorized Users"));
+  assert.ok(overview.fields.some(({ name }) => name === "Authorized Roles"));
+
+  const access = createDataEmbed("access").toJSON();
+  const accessField = access.fields.find(({ name }) => name === "Access");
+  assert.match(accessField.value, /Authorized users:/);
+  assert.match(accessField.value, /Authorized roles:/);
+  assert.ok(access.fields.some(({ name }) => name === "Authorized Users"));
+  assert.ok(access.fields.some(({ name }) => name === "Authorized Roles"));
+
+  const bot = createDataEmbed("bot", {
+    robloxApiOnline: true,
+    ollama: { name: "Ollama (grading AI)", state: "Online", detail: "qwen2.5:0.5b", latencyMs: 12 },
+  }).toJSON();
+  const integrations = bot.fields.find(({ name }) => name === "Integrations").value;
+  assert.match(integrations, /Roblox Public API: Online/);
+  assert.match(integrations, /Ollama \(grading AI\): Online — qwen2\.5:0\.5b/);
+  assert.match(bot.fields.find(({ name }) => name === "Runtime").value, /Uptime:/);
+  assert.match(bot.fields.find(({ name }) => name === "Discord").value, /Ping:/);
+
+  const colors = createDataEmbed("colors").toJSON();
+  assert.ok(colors.fields.some(({ name }) => name === "Embed Colors"));
+  assert.ok(colors.fields.some(({ name }) => name === "Rotating Presence"));
+
+  for (const view of ["overview", "access", "bot", "colors"]) {
+    const embed = createDataEmbed(view, {
+      robloxApiOnline: false,
+      ollama: { name: "Ollama (grading AI)", state: "Offline", detail: "Unreachable", latencyMs: 3 },
+    }).toJSON();
+    assert.ok(embed.fields.length <= 25, `${view} exceeds the embed field limit`);
+    assert.ok(embed.fields.every(({ value }) => value.length <= 1024), `${view} has an oversized field`);
+  }
+});
+
+test("every command except the public admin panel requires granted access", () => {
+  const registered = commands.map((command) => command.toJSON().name);
+  assert.deepEqual(
+    registered.filter((name) => !ACCESS_CONTROLLED_COMMANDS.has(name)),
+    ["admin"],
+  );
+  for (const name of ["background", "badge", "groups", "changelog", "info", "grade"]) {
+    assert.ok(ACCESS_CONTROLLED_COMMANDS.has(name), `${name} must require access`);
+  }
+});
+
+test("/info reports live Ollama status alongside the other integrations", () => {
+  const embed = createInfoEmbed({
+    pingMs: 42,
+    servers: 2,
+    totalUsers: 120,
+    uptimeSeconds: 3600,
+    commandCount: commands.length,
+    authorizedUsers: 3,
+    authorizedRoles: 1,
+    botId: "1186370477606838375",
+    memoryMb: 128.4,
+    robloxOnline: true,
+    robloxCloud: true,
+    xtracker: false,
+    ollama: { name: "Ollama (grading AI)", state: "Online", detail: "qwen2.5:0.5b", latencyMs: 8 },
+  }).toJSON();
+  const ollama = embed.fields.find(({ name }) => name === "Ollama (grading AI)");
+  assert.ok(ollama, "/info must show Ollama status");
+  assert.equal(ollama.value, "Online — qwen2.5:0.5b\n8ms");
+  assert.equal(embed.fields.find(({ name }) => name === "Ping").value, "42ms");
+  assert.equal(embed.fields.find(({ name }) => name === "Uptime").value, "1h 0s");
 });
 
 test("grading feedback log is an embed with a sheet-ready row and owner ping", () => {

@@ -1,5 +1,10 @@
 # Change Log
 
+## 2.1.0 - 2026-11-13
+- `/data` opens separate views from a menu: Overview, Access & Statistics, Bot & API, and Embed Colors.
+- `/info` shows live Ollama status alongside the other integrations.
+- Access control is enforced centrally: every command except the public `/admin` panel requires granted access, including the advanced badge-tracking button.
+
 ## 2.0.3 - 2026-11-13
 - Test
 
