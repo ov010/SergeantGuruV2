@@ -10,7 +10,9 @@ Requires Node.js 22.13+ and pnpm.
 3. From the project root, run `pnpm.cmd start` in the terminal, or press **F5**
    in **Run and Debug**. Both build and start the API server; it supervises the
    Discord bot.
-4. For local AI review, install Ollama and keep it running. The project uses
+4. Ollama is optional. The bot runs without it: grading falls back to the
+   deterministic rubric and Alt Risk uses the rule-based score. For local AI
+   review, install Ollama and keep it running. The project uses
    `OLLAMA_MODEL` from `.env` (currently `qwen2.5:0.5b`); pull it with
    `ollama pull qwen2.5:0.5b`, or point `OLLAMA_MODEL` at any other pulled model.
    In `/grade`, Ollama compares the submitted mistakes with the Google Sheet

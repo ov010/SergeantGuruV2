@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { ApplicationIntegrationType, InteractionContextType } from "discord.js";
 
@@ -442,6 +443,26 @@ test("grading AI refuses non-local model endpoints", async () => {
     }),
     /must use a local Ollama address/,
   );
+});
+
+test("local AI calls reject quickly when Ollama is not running", async () => {
+  const unreachable = { baseUrl: "http://127.0.0.1:1", model: "qwen2.5:0.5b" };
+  await assert.rejects(suggestNewGradeMistakes({
+    eventType: "Guarding Evaluation",
+    mistakes: ["Did not secure the lobby"],
+    knownRules: [],
+    ...unreachable,
+  }));
+  await assert.rejects(assessAltRisk({ signals: { account_age_days: 1 }, ...unreachable }));
+});
+
+test("launcher treats Ollama as optional so the bot always starts", () => {
+  const launcher = readFileSync(new URL("../../Start SergeantGuruV2.bat", import.meta.url), "utf8");
+  assert.match(launcher, /Checking Ollama \(optional\)/);
+  assert.match(launcher, /:OLLAMA_MISSING/);
+  assert.match(launcher, /:OLLAMA_UNAVAILABLE/);
+  assert.match(launcher, /:START_BOT/);
+  assert.match(launcher, /call pnpm\.cmd start/);
 });
 
 test("clamps and validates local alt-risk AI assessments", () => {
