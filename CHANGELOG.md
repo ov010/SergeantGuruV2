@@ -1,5 +1,9 @@
 # Change Log
 
+## 2.1.1 - 2026-11-13
+- `/info` and the `/data` Bot & API view show the running build version, so a stale process is obvious.
+- The bot prints its version when it connects, and `/api/healthz` reports it too.
+
 ## 2.1.0 - 2026-11-13
 - `/data` opens separate views from a menu: Overview, Access & Statistics, Bot & API, and Embed Colors.
 - `/info` shows live Ollama status alongside the other integrations.

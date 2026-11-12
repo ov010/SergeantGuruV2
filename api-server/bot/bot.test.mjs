@@ -9,6 +9,7 @@ process.env["ROBLOX_OPEN_CLOUD_API_KEY"] = "test-key";
 
 const {
   ACCESS_CONTROLLED_COMMANDS,
+  BOT_VERSION,
   altRisk,
   blendAltRisk,
   commandDescriptions,
@@ -138,7 +139,9 @@ test("/data opens separate views for access, bot/API, and colors", () => {
   const integrations = bot.fields.find(({ name }) => name === "Integrations").value;
   assert.match(integrations, /Roblox Public API: Online/);
   assert.match(integrations, /Ollama \(grading AI\): Online — qwen2\.5:0\.5b/);
-  assert.match(bot.fields.find(({ name }) => name === "Runtime").value, /Uptime:/);
+  const runtime = bot.fields.find(({ name }) => name === "Runtime").value;
+  assert.ok(runtime.includes(`Version: ${BOT_VERSION}`), "the Bot & API view must report the running version");
+  assert.match(runtime, /Uptime:/);
   assert.match(bot.fields.find(({ name }) => name === "Discord").value, /Ping:/);
 
   const colors = createDataEmbed("colors").toJSON();
@@ -185,6 +188,7 @@ test("/info reports live Ollama status alongside the other integrations", () => 
   const ollama = embed.fields.find(({ name }) => name === "Ollama (grading AI)");
   assert.ok(ollama, "/info must show Ollama status");
   assert.equal(ollama.value, "Online — qwen2.5:0.5b\n8ms");
+  assert.equal(embed.fields.find(({ name }) => name === "Version").value, BOT_VERSION);
   assert.equal(embed.fields.find(({ name }) => name === "Ping").value, "42ms");
   assert.equal(embed.fields.find(({ name }) => name === "Uptime").value, "1h 0s");
 });

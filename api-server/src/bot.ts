@@ -48,8 +48,10 @@ import {
 import { reviewGradeSubmission, suggestNewGradeMistakes } from "./bot-grade-ai";
 import { assessAltRisk } from "./bot-alt-ai";
 import { createGradeRules, fetchGradeSheetRules, gradeSheetSeverityOverrides, mistakeMatchesSheetRule } from "./grade-sheet";
+import packageJson from "../../package.json";
 
 export { makeBadgeChart };
+export const BOT_VERSION: string = packageJson.version;
 export { parseGradeMistakeSuggestions, parseGradeReview } from "./bot-grade-ai";
 export { parseAltAssessment } from "./bot-alt-ai";
 
@@ -2315,6 +2317,7 @@ function createDataBotEmbed(status: DataStatus): EmbedBuilder {
     {
       name: "Runtime",
       value: [
+        `Version: ${BOT_VERSION}`,
         `Uptime: ${formatUptime((Date.now() - startTime) / 1000)}`,
         `Memory: ${(process.memoryUsage().rss / 1024 / 1024).toFixed(1)} MB`,
         `Platform: ${process.platform} ${process.arch}`,
@@ -2391,6 +2394,7 @@ export interface InfoSnapshot {
 
 export function createInfoEmbed(info: InfoSnapshot): EmbedBuilder {
   return makeEmbed("Bot Information", commandDescriptions().join("\n"), "Info").addFields(
+    { name: "Version", value: BOT_VERSION, inline: true },
     { name: "Ping", value: `${info.pingMs}ms`, inline: true },
     { name: "Servers", value: String(info.servers), inline: true },
     { name: "Total Users", value: info.totalUsers.toLocaleString(), inline: true },
@@ -2828,7 +2832,7 @@ client.on("interactionCreate", async (interaction) => {
 
 client.once("ready", async () => {
   if (!client.user) return;
-  log(`Connected to Discord as ${client.user.tag}`);
+  log(`Connected to Discord as ${client.user.tag} (SergeantGuruV2 v${BOT_VERSION})`);
   startRotatingPresence();
   try {
     await new REST({ version: "10" }).setToken(token!).put(Routes.applicationCommands(client.user.id), { body: commands.map((command) => command.toJSON()) });
