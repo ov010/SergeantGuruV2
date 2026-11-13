@@ -304,7 +304,9 @@ export function runWithInteractionId<T>(interactionId: string, callback: () => T
   return interactionContext.run(interactionId, callback);
 }
 
-// Any embed with more than PAGE_LINE_LIMIT lines of content is split into paged embeds.
+// Pages target PAGE_LINE_LIMIT lines, but logical blocks (the description or one
+// field) are never split, so a page may hold more than the target to keep
+// related information together.
 export const PAGE_LINE_LIMIT = 5;
 const PAGINATION_TTL_MS = 15 * 60 * 1000;
 type PaginationRow = ActionRowBuilder<MessageActionRowComponentBuilder>;
@@ -324,54 +326,59 @@ function pagedTitle(title: string | undefined, page: number, total: number): str
 
 export function paginateEmbed(embed: EmbedBuilder): EmbedBuilder[] {
   const data = embed.toJSON();
-  type Unit =
-    | { kind: "description"; text: string }
-    | { kind: "field"; index: number; name: string; text: string; inline: boolean };
-  const units: Unit[] = [];
+  type Block =
+    | { kind: "description"; lines: string[] }
+    | { kind: "field"; name: string; lines: string[]; inline: boolean };
+  const blocks: Block[] = [];
 
   if (data.description) {
-    for (const line of data.description.split(/\r?\n/)) {
-      units.push({ kind: "description", text: line });
-    }
-    while (units.length && units.at(-1)!.kind === "description" && !units.at(-1)!.text) units.pop();
+    const lines = data.description.split(/\r?\n/);
+    while (lines.length && !lines.at(-1)!.trim()) lines.pop();
+    if (lines.length) blocks.push({ kind: "description", lines });
   }
-  (data.fields ?? []).forEach((field, index) => {
-    for (const line of (field.value ?? "").split(/\r?\n/)) {
-      units.push({ kind: "field", index, name: field.name, text: line, inline: field.inline ?? false });
+  for (const field of data.fields ?? []) {
+    blocks.push({
+      kind: "field",
+      name: field.name,
+      lines: (field.value ?? "").split(/\r?\n/),
+      inline: field.inline ?? false,
+    });
+  }
+
+  const totalLines = blocks.reduce((sum, block) => sum + Math.max(1, block.lines.length), 0);
+  if (totalLines <= PAGE_LINE_LIMIT) return [embed];
+
+  const pageBlocks: Block[][] = [];
+  let current: Block[] = [];
+  let currentLines = 0;
+  for (const block of blocks) {
+    const blockLines = Math.max(1, block.lines.length);
+    if (current.length && currentLines + blockLines > PAGE_LINE_LIMIT) {
+      pageBlocks.push(current);
+      current = [];
+      currentLines = 0;
     }
-  });
+    current.push(block);
+    currentLines += blockLines;
+  }
+  if (current.length) pageBlocks.push(current);
+  if (pageBlocks.length <= 1) return [embed];
 
-  if (units.length <= PAGE_LINE_LIMIT) return [embed];
-
-  const total = Math.ceil(units.length / PAGE_LINE_LIMIT);
-  const pages: EmbedBuilder[] = [];
-  for (let start = 0; start < units.length; start += PAGE_LINE_LIMIT) {
-    const slice = units.slice(start, start + PAGE_LINE_LIMIT);
-    const description: string[] = [];
-    const fields: Array<{ index: number; name: string; value: string[]; inline: boolean }> = [];
-    for (const unit of slice) {
-      if (unit.kind === "description") {
-        description.push(unit.text);
-        continue;
-      }
-      const last = fields.at(-1);
-      if (last && last.index === unit.index) last.value.push(unit.text);
-      else fields.push({ index: unit.index, name: unit.name, value: [unit.text], inline: unit.inline });
-    }
-
+  return pageBlocks.map((group, index) => {
+    const description = group.find((block): block is Extract<Block, { kind: "description" }> => block.kind === "description");
+    const fields = group.filter((block): block is Extract<Block, { kind: "field" }> => block.kind === "field");
     const page = EmbedBuilder.from(data)
-      .setTitle(pagedTitle(data.title, pages.length + 1, total))
-      .setDescription(description.length ? description.join("\n").slice(0, 4096) : null)
+      .setTitle(pagedTitle(data.title, index + 1, pageBlocks.length))
+      .setDescription(description ? description.lines.join("\n").slice(0, 4096) : null)
       .setFields(fields.map((field) => ({
         name: field.name.slice(0, 256),
-        value: field.value.join("\n").slice(0, 1024) || "\u200b",
+        value: field.lines.join("\n").slice(0, 1024) || "\u200b",
         inline: field.inline,
       })));
     // Attachments such as the badge chart belong on the first page only.
-    if (pages.length) page.setImage(null);
-    pages.push(page);
-  }
-  return pages;
+    if (index) page.setImage(null);
+    return page;
+  });
 }
 
 function paginationRow(token: string, page: number, total: number): ActionRowBuilder<ButtonBuilder> {

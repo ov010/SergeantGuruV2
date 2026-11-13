@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { ApplicationIntegrationType, InteractionContextType } from "discord.js";
+import { ApplicationIntegrationType, EmbedBuilder, InteractionContextType } from "discord.js";
 
 process.env["NODE_ENV"] = "test";
 process.env["DISCORD_BOT_TOKEN"] = "test-token";
@@ -412,7 +412,7 @@ test("all embed footers use the universal format even without an interaction con
   assert.match(embed.footer.text, /^SergeantGuruV2 \| \d{2}:\d{2}Z \| ID: N\/A$/);
 });
 
-test("paginates embeds that exceed five lines of information", () => {
+test("paginates embeds without splitting related blocks", () => {
   const interactionId = "1570581254280183828";
   const info = () => createInfoEmbed({
     pingMs: 42,
@@ -430,20 +430,48 @@ test("paginates embeds that exceed five lines of information", () => {
     ollama: { name: "Ollama (grading AI)", state: "Online", detail: "qwen2.5:0.5b", latencyMs: 8 },
     dailyUsage: null,
   });
+  const original = info().toJSON();
   const pages = runWithInteractionId(interactionId, () => paginateEmbed(info()));
 
   assert.ok(pages.length > 1, "/info needs more than one page");
+  const descriptions = pages.map((page) => page.toJSON().description).filter(Boolean);
+  assert.deepEqual(descriptions, [original.description], "the description stays on one page");
+  assert.ok(original.description.split("\n").length > PAGE_LINE_LIMIT);
+
+  const fields = pages.flatMap((page) => page.toJSON().fields);
+  assert.deepEqual(
+    fields.map(({ name, value }) => ({ name, value })),
+    original.fields.map(({ name, value }) => ({ name, value })),
+    "no field is split across pages",
+  );
+
   for (const [index, page] of pages.entries()) {
     const json = page.toJSON();
-    const lines = (json.description ? json.description.split("\n").length : 0)
-      + json.fields.reduce((sum, field) => sum + field.value.split("\n").length, 0);
-    assert.ok(lines <= PAGE_LINE_LIMIT, `page ${index + 1} has ${lines} lines`);
     assert.match(json.title, new RegExp(`\\(Page ${index + 1}/${pages.length}\\)$`));
     assert.match(json.footer.text, new RegExp(`^SergeantGuruV2 \\| \\d{2}:\\d{2}Z \\| ID: ${interactionId}$`));
   }
 
   const short = runWithInteractionId(interactionId, () => createGroupsEmbed("Guru_Guru1X", []));
   assert.equal(paginateEmbed(short).length, 1, "short embeds are left alone");
+});
+
+test("a single long field stays together even when it exceeds the page target", () => {
+  const longField = Array.from({ length: 9 }, (_, index) => `Related line ${index + 1}`).join("\n");
+  const embed = new EmbedBuilder()
+    .setTitle("Long Block")
+    .addFields(
+      { name: "Related Info", value: longField },
+      { name: "Other Info", value: "One more line" },
+    );
+
+  const pages = paginateEmbed(embed);
+  assert.equal(pages.length, 2);
+  const first = pages[0].toJSON();
+  assert.equal(first.fields.length, 1);
+  assert.equal(first.fields[0].name, "Related Info");
+  assert.equal(first.fields[0].value, longField);
+  assert.ok(first.fields[0].value.split("\n").length > PAGE_LINE_LIMIT);
+  assert.equal(pages[1].toJSON().fields[0].name, "Other Info");
 });
 
 test("pagination controls step through valid pages", () => {
