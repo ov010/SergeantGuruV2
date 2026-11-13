@@ -22,6 +22,7 @@ const {
   createChangelogEmbed,
   loadChangelogEmbed,
   COLOR_TARGETS,
+  COLOR_TARGET_PAGE_SIZE,
   createAdminModal,
   createAdminPanelMenu,
   createApiStatusEmbed,
@@ -70,7 +71,10 @@ test("registers only the retained commands", () => {
   assert.equal(registered.find(({ name }) => name === "changelog").options?.length ?? 0, 0);
   assert.match(registered.find(({ name }) => name === "search").description, /every logged interaction by username, user ID, or interaction ID/);
   assert.match(registered.find(({ name }) => name === "roblox").description, /linked through Bloxlink/);
-  assert.match(registered.find(({ name }) => name === "background").options[0].options[0].description, /Discord user ID/);
+  const backgroundOptions = registered.find(({ name }) => name === "background").options[0].options;
+  assert.equal(backgroundOptions.find(({ name }) => name === "username").required ?? false, false);
+  assert.match(backgroundOptions.find(({ name }) => name === "username").description, /Roblox username/);
+  assert.match(backgroundOptions.find(({ name }) => name === "discord").description, /Discord Query/);
   assert.match(registered.find(({ name }) => name === "records").options[0].description, /Discord user ID/);
   assert.ok(ACCESS_CONTROLLED_COMMANDS.has("roblox"), "Bloxlink lookups require access");
 });
@@ -353,7 +357,7 @@ test("admin modal and color menus provide selectable access and appearance setti
   const accessModal = createAdminModal("authorize-user").toJSON();
   const presenceModal = createAdminModal("presence").toJSON();
   const adminActions = createAdminPanelMenu().toJSON().components[0].options;
-  const pageCount = Math.ceil(COLOR_TARGETS.length / 24);
+  const pageCount = Math.ceil(COLOR_TARGETS.length / COLOR_TARGET_PAGE_SIZE);
   const targetPages = Array.from({ length: pageCount }, (_, page) =>
     createColorTargetMenu(page).toJSON().components[0].options,
   );

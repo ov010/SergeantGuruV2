@@ -124,6 +124,7 @@ const EMBED_ROLES: Record<string, [string, string]> = {
   "Rate Limit Exceeded": ["embed_color_rate_limit", "Orange"],
   "Daily Limit Reached": ["embed_color_daily_limit", "Orange"],
   "Invalid Roblox Username": ["embed_color_invalid_username", "Orange"],
+  "Invalid Background Query": ["embed_color_background_query_invalid", "Orange"],
   "Background Check Timed Out": ["embed_color_background_timeout", "Orange"],
   "Could Not Look Up User": ["embed_color_lookup_error", "Orange"],
   "Could Not Load Groups": ["embed_color_groups_error", "Orange"],
@@ -526,7 +527,9 @@ export function createAdminPanelMenu(): ActionRowBuilder<StringSelectMenuBuilder
 }
 
 export const COLOR_TARGETS = ["Badge Chart", ...Object.keys(EMBED_ROLES)];
-const COLOR_TARGET_PAGE_SIZE = 24;
+// Discord allows 25 select options. Reserve two slots for the previous/next
+// navigation on middle pages, so every page stays within the limit.
+export const COLOR_TARGET_PAGE_SIZE = 23;
 const COLOR_TARGET_NEXT = "__next__";
 const COLOR_TARGET_PREVIOUS = "__previous__";
 
@@ -2028,16 +2031,38 @@ async function replyDenied(interaction: ChatInputCommandInteraction): Promise<vo
   await interaction.reply({ embeds: [deniedEmbed("Ask the bot owner to grant access.")] });
 }
 
-async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, username: string): Promise<void> {
+interface BackgroundCheckRequest {
+  username?: string | null;
+  discord?: string | null;
+}
+
+async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, request: BackgroundCheckRequest): Promise<void> {
   if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
   if (!validateBadgeRate(interaction.user.id)) {
     await interaction.reply({ embeds: [makeEmbed("Rate Limit Exceeded", "You've reached the rate limit. Please wait before trying again. (0 requests remaining in the next minute)", "Warning")] });
     return;
   }
+  const usernameInput = request.username?.trim() ?? "";
+  const discordOption = request.discord?.trim() ?? "";
+  if (usernameInput && discordOption) {
+    await interaction.reply({ embeds: [makeEmbed("Invalid Background Query", "Provide either a Roblox username or a Discord Query, not both.", "Warning")] });
+    return;
+  }
+  if (!usernameInput && !discordOption) {
+    await interaction.reply({ embeds: [makeEmbed("Invalid Background Query", "Provide a Roblox username or a Discord Query (a linked Discord user ID).", "Warning")] });
+    return;
+  }
+  // A Discord ID passed through the username option keeps older usage working.
+  const discordQuery = discordOption || (isDiscordUserId(usernameInput) ? usernameInput : "");
+  const usernameQuery = discordQuery ? "" : usernameInput;
+  if (discordQuery && !isDiscordUserId(discordQuery)) {
+    await interaction.reply({ embeds: [makeEmbed("Invalid Background Query", "Enter a valid Discord user ID (15-22 digits).", "Warning")] });
+    return;
+  }
   let normalized: string | undefined;
-  if (!isDiscordUserId(username)) {
+  if (usernameQuery) {
     try {
-      normalized = validateRobloxUsername(username);
+      normalized = validateRobloxUsername(usernameQuery);
     } catch (error) {
       await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] });
       return;
@@ -2058,8 +2083,13 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, use
   try {
     const outcome = await Promise.race([
       (async () => {
-        const resolved = normalized ?? await resolveLookupUsername(username, controller.signal);
-        return { kind: "ready" as const, result: await backgroundCheck(resolved, controller.signal) };
+        let discordAccount: BloxlinkAccount | undefined;
+        let resolved = normalized;
+        if (!resolved) {
+          discordAccount = await bloxlinkDiscordToRoblox(discordQuery, controller.signal);
+          resolved = validateRobloxUsername(discordAccount.name);
+        }
+        return { kind: "ready" as const, result: await backgroundCheck(resolved, controller.signal), discordAccount };
       })(),
       timedOut,
     ]);
@@ -2070,6 +2100,13 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, use
         files: [],
       });
       return;
+    }
+    if (outcome.discordAccount && discordQuery) {
+      outcome.result.embed.addFields({
+        name: "Discord Query",
+        value: `<@${discordQuery}> (${discordQuery})\nLinked Roblox: [${outcome.discordAccount.name}](${outcome.discordAccount.profileLink}) (${outcome.discordAccount.id})`,
+        inline: false,
+      });
     }
     const advancedButton = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
@@ -2357,8 +2394,10 @@ export const commands = [
       .setDescription("Build a full badge-history report for a Roblox user.")
       .addStringOption((option) => option
         .setName("username")
-        .setDescription("The Roblox username or linked Discord user ID to check")
-        .setRequired(true))),
+        .setDescription("The Roblox username to check (omit when using Discord Query)"))
+      .addStringOption((option) => option
+        .setName("discord")
+        .setDescription("Discord Query: a Discord user ID to resolve through Bloxlink"))),
   new SlashCommandBuilder()
     .setName("badge")
     .setDescription("Show a Roblox user's badge history.")
@@ -2422,7 +2461,12 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
     }
   }
   commandGateOutcomes.set(interaction, "allowed");
-  if (name === "background" && interaction.options.getSubcommand() === "check") return sendBackgroundCheck(interaction, interaction.options.getString("username", true));
+  if (name === "background" && interaction.options.getSubcommand() === "check") {
+    return sendBackgroundCheck(interaction, {
+      username: interaction.options.getString("username"),
+      discord: interaction.options.getString("discord"),
+    });
+  }
   if (name === "badge" && interaction.options.getSubcommand() === "count") return sendBadgeCount(interaction, interaction.options.getString("username", true));
   if (name === "groups") return sendGroups(interaction, interaction.options.getString("username", true));
   if (name === "records") return sendRecords(interaction, interaction.options.getString("username", true));

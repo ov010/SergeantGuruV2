@@ -31,8 +31,10 @@ The bot provides `/background check`, `/badge count`, `/grade`, `/api`,
 `/groups`, `/records`, `/roblox`, and `/info`. `/records` is a focused lookup
 that returns only the blacklist and Secret Service Trello records plus
 [x]Tracker marks. `/roblox` uses Bloxlink to translate between Discord user IDs
-and Roblox accounts. `/background check` and `/records` also accept a linked
-Discord user ID in place of a Roblox username.
+and Roblox accounts. `/background check` has a `discord` option for a
+**Discord Query**: it resolves a linked Discord user ID through Bloxlink and
+runs the same report, adding a Discord Query field with the linked account.
+`/records` also accepts a linked Discord user ID in place of a Roblox username.
 `/grade` posts its report as plain text, not an embed,
 and capitalizes shortened rubric terms such as OOS, VB and PB while leaving
 ordinary words and names alone. Its evaluation menu includes VIP Training,

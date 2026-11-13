@@ -1,5 +1,9 @@
 # Change Log
 
+## 2.4.2 - 2026-11-13
+- Added a **Discord Query** option to `/background check`, which resolves a linked Discord user ID through Bloxlink and adds the linked account to the report.
+- `/background check` now accepts either a Roblox username or a Discord Query and explains when both or neither are provided.
+
 ## 2.4.1 - 2026-11-13
 - Bloxlink lookups now use the guild-scoped API endpoints and the configurable `BLOXLINK_GUILD_ID` value.
 - Bloxlink errors now explain guild mismatches, missing Bloxlink setup, and unlinked users instead of returning raw API text.
