@@ -2194,7 +2194,7 @@ export const commands = [
   new SlashCommandBuilder().setName("data").setDescription("Show detailed stats, access, and settings."),
   new SlashCommandBuilder()
     .setName("search")
-    .setDescription("Find logged interactions by username, user ID, or interaction ID.")
+    .setDescription("Find every logged interaction by username, user ID, or interaction ID.")
     .addStringOption((option) => option
       .setName("query")
       .setDescription("A Discord username, Discord user ID, or interaction ID")
@@ -2291,35 +2291,69 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
     }
 
     await interaction.deferReply();
-    const { messages, scanned } = await findInteractionLogs(query);
+    const { messages, scanned, complete } = await findInteractionLogs(query);
     if (!messages.length) {
       await interaction.editReply({
         embeds: [makeEmbed(
           "No Interactions Found",
-          `No matching log entries were found for **${query}** in the latest ${scanned.toLocaleString()} messages.`,
+          complete
+            ? `No matching log entries were found for **${query}** across ${scanned.toLocaleString()} scanned log messages.`
+            : `No matching log entries were found for **${query}** in the latest ${scanned.toLocaleString()} log messages (search limit reached).`,
           "Warning",
         )],
       });
       return;
     }
 
-    const results = messages.slice(0, 5).map((message) => {
+    const results = messages.map((message): InteractionSearchResult => {
       const audit = message.embeds.find((embed) => matchesInteractionLog(embed, query));
       const field = (name: string): string => audit?.fields.find((item) => item.name === name)?.value ?? NONE;
-      return [
-        `**${field("Action").slice(0, 250)}** — ${field("Access")}`,
-        `User: ${field("User").slice(0, 100)} (${field("User ID")})`,
-        `Interaction ID: ${field("Interaction ID")}`,
-        `[Jump to log message](${message.url})`,
-      ].join("\n");
+      return {
+        action: field("Action"),
+        access: field("Access"),
+        user: field("User"),
+        userId: field("User ID"),
+        interactionId: field("Interaction ID"),
+        url: message.url,
+      };
     });
-    const pagination = buildPagination(makeEmbed(
-      "Interaction Search Results",
-      `Found ${messages.length} matching ${messages.length === 1 ? "interaction" : "interactions"} for **${query}**${messages.length > results.length ? `; showing the latest ${results.length}.` : "."}`,
-      "Success",
-    ).addFields(results.map((value, index) => ({ name: `Result ${index + 1}`, value, inline: false }))));
+    const pagination = buildPagination(createSearchResultsEmbed(query, results, scanned, complete));
     await interaction.editReply({ embeds: pagination.embeds, components: pagination.components });
   }
+}
+
+export interface InteractionSearchResult {
+  action: string;
+  access: string;
+  user: string;
+  userId: string;
+  interactionId: string;
+  url: string;
+}
+
+export function createSearchResultsEmbed(
+  query: string,
+  results: InteractionSearchResult[],
+  scanned: number,
+  complete: boolean,
+): EmbedBuilder {
+  const scope = complete
+    ? `across ${scanned.toLocaleString()} scanned log messages`
+    : `in the latest ${scanned.toLocaleString()} log messages (search limit reached)`;
+  return makeEmbed(
+    "Interaction Search Results",
+    `Found ${results.length.toLocaleString()} matching ${results.length === 1 ? "interaction" : "interactions"} for **${query}** ${scope}.`,
+    "Success",
+  ).addFields(results.map((result, index) => ({
+    name: `Result ${index + 1}`,
+    value: [
+      `**${result.action.slice(0, 250)}** — ${result.access}`,
+      `User: ${result.user.slice(0, 100)} (${result.userId})`,
+      `Interaction ID: ${result.interactionId}`,
+      `[Jump to log message](${result.url})`,
+    ].join("\n"),
+    inline: false,
+  })));
 }
 
 export function matchesInteractionLog(
@@ -2341,7 +2375,9 @@ export function matchesInteractionLog(
     : username === normalizedQuery || footerUsername === normalizedQuery;
 }
 
-async function findInteractionLogs(query: string): Promise<{ messages: import("discord.js").Message[]; scanned: number }> {
+const MAX_SEARCH_MESSAGES = 100_000;
+
+async function findInteractionLogs(query: string): Promise<{ messages: import("discord.js").Message[]; scanned: number; complete: boolean }> {
   const guild = client.guilds.cache.get(BACKGROUND_CHECK_LOG_GUILD_ID)
     ?? await client.guilds.fetch(BACKGROUND_CHECK_LOG_GUILD_ID);
   const channel = await guild.channels.fetch(BACKGROUND_CHECK_LOG_CHANNEL_ID);
@@ -2352,19 +2388,20 @@ async function findInteractionLogs(query: string): Promise<{ messages: import("d
   let before: string | undefined;
   let scanned = 0;
   const matches: import("discord.js").Message[] = [];
-  while (scanned < 1000) {
+  while (scanned < MAX_SEARCH_MESSAGES) {
+    const limit = Math.min(100, MAX_SEARCH_MESSAGES - scanned);
     const messages = await channel.messages.fetch({
-      limit: Math.min(100, 1000 - scanned),
+      limit,
       ...(before ? { before } : {}),
     });
-    if (!messages.size) break;
+    if (!messages.size) return { messages: matches, scanned, complete: true };
     const batch = [...messages.values()];
     matches.push(...batch.filter((message) => message.embeds.some((embed) => matchesInteractionLog(embed, query))));
     scanned += batch.length;
     before = batch.at(-1)?.id;
-    if (batch.length < 100) break;
+    if (batch.length < limit) return { messages: matches, scanned, complete: true };
   }
-  return { messages: matches, scanned };
+  return { messages: matches, scanned, complete: false };
 }
 
 function formatUptime(seconds: number): string {

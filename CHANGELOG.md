@@ -1,5 +1,9 @@
 # Change Log
 
+## 2.3.6 - 2026-11-13
+- `/search` now scans the full interaction-log history and returns every matching entry instead of only the latest five.
+- Search results show how many log messages were scanned and warn when the 100,000-message safety cap is reached.
+
 ## 2.3.5 - 2026-11-13
 - Paginated embeds now target 15 lines per page instead of 5, keeping related sections together with fewer page turns.
 

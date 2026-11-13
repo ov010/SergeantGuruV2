@@ -34,6 +34,7 @@ const {
   createGroupsEmbed,
   createRecordsEmbed,
   createInteractionLogEmbed,
+  createSearchResultsEmbed,
   DAILY_COMMAND_LIMIT,
   consumeDailyCommand,
   resetDailyCommandUsage,
@@ -61,7 +62,7 @@ test("registers only the retained commands", () => {
   assert.equal(registered.find(({ name }) => name === "badge").options[0].name, "count");
   assert.equal(registered.find(({ name }) => name === "search").options[0].name, "query");
   assert.equal(registered.find(({ name }) => name === "changelog").options?.length ?? 0, 0);
-  assert.match(registered.find(({ name }) => name === "search").description, /username, user ID, or interaction ID/);
+  assert.match(registered.find(({ name }) => name === "search").description, /every logged interaction by username, user ID, or interaction ID/);
 });
 
 test("changelog parses newest-first releases, CRLF bullets, and ignores malformed sections", () => {
@@ -517,6 +518,65 @@ test("a single long field stays together even when it exceeds the page target", 
   assert.equal(first.fields[0].value, longField);
   assert.ok(first.fields[0].value.split("\n").length > PAGE_LINE_LIMIT);
   assert.equal(pages[1].toJSON().fields[0].name, "Other Info");
+});
+
+test("/search embeds every matching log and pagination never drops a result", () => {
+  const results = Array.from({ length: 25 }, (_, index) => {
+    const userId = String(100000000000000000n + BigInt(index));
+    const interactionId = String(200000000000000000n + BigInt(index));
+    return {
+      action: `Action ${index + 1}`,
+      access: "GRANTED",
+      user: `<@${userId}>`,
+      userId,
+      interactionId,
+      url: `https://discord.com/channels/1/2/${300000000000000000n + BigInt(index)}`,
+    };
+  });
+  const embed = createSearchResultsEmbed("tester", results, 1234, true);
+  const json = embed.toJSON();
+  assert.equal(json.title, "Interaction Search Results");
+  assert.equal(
+    json.description,
+    "Found 25 matching interactions for **tester** across 1,234 scanned log messages.",
+  );
+  assert.equal(json.fields.length, 25, "every match becomes a search result");
+  assert.match(json.fields[0].value, new RegExp(results[0].userId));
+  assert.match(json.fields[0].value, new RegExp(`Interaction ID: ${results[0].interactionId}`));
+  assert.match(json.fields[24].value, /\[Jump to log message\]\(https:\/\/discord\.com\/channels\/1\/2\//);
+  assert.match(json.footer.text, /^SergeantGuruV2 \| \d{2}:\d{2}Z \| ID: /);
+
+  const pages = paginateEmbed(embed);
+  assert.ok(pages.length > 1, "large result sets should paginate instead of truncating");
+  const shown = pages.flatMap((page) => page.toJSON().fields);
+  assert.equal(shown.length, 25, "pagination must not drop search results");
+  assert.deepEqual(
+    shown.map(({ name }) => name),
+    results.map((_, index) => `Result ${index + 1}`),
+  );
+  for (const page of pages) {
+    assert.match(page.toJSON().footer.text, /^SergeantGuruV2 \| \d{2}:\d{2}Z \| ID: /);
+  }
+});
+
+test("/search reports when the scan limit was reached", () => {
+  const result = {
+    action: "Background Check",
+    access: "GRANTED",
+    user: "<@1000000000000000001>",
+    userId: "1000000000000000001",
+    interactionId: "2000000000000000001",
+    url: "https://discord.com/channels/1/2/3",
+  };
+  const single = createSearchResultsEmbed("tester", [result], 500, true).toJSON();
+  assert.equal(single.description, "Found 1 matching interaction for **tester** across 500 scanned log messages.");
+  assert.equal(single.fields.length, 1);
+
+  const capped = createSearchResultsEmbed("tester", [result], 100000, false).toJSON();
+  assert.equal(
+    capped.description,
+    "Found 1 matching interaction for **tester** in the latest 100,000 log messages (search limit reached).",
+  );
 });
 
 test("pagination controls step through valid pages", () => {
