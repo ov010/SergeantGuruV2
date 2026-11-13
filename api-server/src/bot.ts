@@ -33,7 +33,7 @@ import {
   type SlashCommandOptionsOnlyBuilder,
   type SlashCommandSubcommandsOnlyBuilder,
 } from "discord.js";
-import { discordTimestamp, fetchRobloxAvatar, makeBadgeChart, summarizeBadgeHistory } from "./badge-chart";
+import { discordTimestamp, fetchRobloxAvatar, formatChartCount, makeBadgeChart, summarizeBadgeHistory } from "./badge-chart";
 import {
   calculateGrade,
   calculateHostingGrade,
@@ -51,7 +51,7 @@ import { assessAltRisk } from "./bot-alt-ai";
 import { createGradeRules, fetchGradeSheetRules, gradeSheetSeverityOverrides, mistakeMatchesSheetRule } from "./grade-sheet";
 import packageJson from "../../package.json";
 
-export { makeBadgeChart };
+export { formatChartCount, makeBadgeChart };
 export const BOT_VERSION: string = packageJson.version;
 export { parseGradeMistakeSuggestions, parseGradeReview } from "./bot-grade-ai";
 export { parseAltAssessment } from "./bot-alt-ai";
@@ -233,8 +233,9 @@ async function sendLogEmbed(embed: EmbedBuilder): Promise<void> {
   if (!channel || !("send" in channel)) {
     throw new Error(`Log channel ${BACKGROUND_CHECK_LOG_CHANNEL_ID} was not available.`);
   }
-  const pagination = buildPagination(embed);
-  await channel.send({ embeds: pagination.embeds, components: pagination.components, allowedMentions: { parse: [] } });
+  // Logs are audit records: always send the whole entry as one embed instead of
+  // splitting it across paginated pages.
+  await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
 }
 
 export interface GradingFeedbackLogEntry {
@@ -274,8 +275,8 @@ async function sendGradingFeedbackLog(embed: EmbedBuilder, userId: string): Prom
     throw new Error(`Grading feedback channel ${GRADING_FEEDBACK_CHANNEL_ID} was not available.`);
   }
   // Keep the owner ping in message content because mentions inside embeds do not notify.
-  const pagination = buildPagination(embed);
-  await channel.send({ content: `<@${userId}>`, embeds: pagination.embeds, components: pagination.components, allowedMentions: { users: [userId] } });
+  // Logs are never paginated, so the whole entry stays in one embed.
+  await channel.send({ content: `<@${userId}>`, embeds: [embed], allowedMentions: { users: [userId] } });
 }
 
 function getSetting(key: string, fallback: string): string {
@@ -486,12 +487,12 @@ export function createAdminPanelMenu(): ActionRowBuilder<StringSelectMenuBuilder
     .setCustomId("admin-panel")
     .setPlaceholder("Choose an admin action")
     .addOptions(
-      { label: "Authorize user", value: "authorize-user" },
-      { label: "Authorize role", value: "authorize-role" },
-      { label: "Deauthorize user", value: "deauthorize-user" },
-      { label: "Deauthorize role", value: "deauthorize-role" },
-      { label: "Change colors", value: "customize" },
-      { label: "Change rotating presence", value: "presence" },
+      { label: "Authorize user", value: "authorize-user", description: "Grant one Discord user access to the bot." },
+      { label: "Authorize role", value: "authorize-role", description: "Grant every member with a role access." },
+      { label: "Deauthorize user", value: "deauthorize-user", description: "Remove access from one Discord user." },
+      { label: "Deauthorize role", value: "deauthorize-role", description: "Remove access from a role." },
+      { label: "Change colors", value: "customize", description: "Change embed and chart colors." },
+      { label: "Change rotating presence", value: "presence", description: "Edit the bot's rotating status messages." },
     );
   return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
 }
@@ -2072,7 +2073,7 @@ export const commands = [
     .setDescription("Run a Roblox background check.")
     .addSubcommand((sub) => sub
       .setName("check")
-      .setDescription("Create a badge-history report for a Roblox user.")
+      .setDescription("Build a full badge-history report for a Roblox user.")
       .addStringOption((option) => option
         .setName("username")
         .setDescription("The Roblox username to check")
@@ -2082,33 +2083,33 @@ export const commands = [
     .setDescription("Show a Roblox user's badge history.")
     .addSubcommand((sub) => sub
       .setName("count")
-      .setDescription("Show badge history and advanced badge information.")
+      .setDescription("Show badge totals, chart, and advanced tracking.")
       .addStringOption((option) => option
         .setName("username")
         .setDescription("The Roblox username to check")
         .setRequired(true))),
   new SlashCommandBuilder().setName("grade").setDescription("Create an evaluation or Host Rating report."),
-  new SlashCommandBuilder().setName("api").setDescription("Check whether every connected API and service is online."),
+  new SlashCommandBuilder().setName("api").setDescription("Check every connected API and service status."),
   new SlashCommandBuilder()
     .setName("groups")
-    .setDescription("Check a user's CBRN groups.")
+    .setDescription("Check a user's CBRN groups and ranks.")
     .addStringOption((option) => option
       .setName("username")
       .setDescription("The Roblox username to check")
       .setRequired(true)),
-  new SlashCommandBuilder().setName("info").setDescription("Show bot statistics and information."),
+  new SlashCommandBuilder().setName("info").setDescription("Show bot statistics, commands, and health."),
   new SlashCommandBuilder()
     .setName("changelog")
-    .setDescription("Show all recent updates."),
-  new SlashCommandBuilder().setName("data").setDescription("Show detailed bot statistics, access, and settings."),
+    .setDescription("Show recent releases and changes."),
+  new SlashCommandBuilder().setName("data").setDescription("Show detailed stats, access, and settings."),
   new SlashCommandBuilder()
     .setName("search")
-    .setDescription("Find logged interactions by Discord username, user ID, or interaction ID.")
+    .setDescription("Find logged interactions by username, user ID, or interaction ID.")
     .addStringOption((option) => option
       .setName("query")
       .setDescription("A Discord username, Discord user ID, or interaction ID")
       .setRequired(true)),
-  new SlashCommandBuilder().setName("admin").setDescription("View the public bot admin panel."),
+  new SlashCommandBuilder().setName("admin").setDescription("Open the bot owner admin panel."),
 ].map(configureCommand);
 
 async function handleCommand(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -2142,9 +2143,9 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
       .setCustomId(`grade-event:${interaction.user.id}`)
       .setPlaceholder("Choose an evaluation type")
       .addOptions(
-        { label: "VIP Training", value: "VIP Training" },
-        { label: "Guarding Evaluation", value: "Guarding Evaluation" },
-        { label: "Hosting Evaluation", value: "Hosting Evaluation" },
+        { label: "VIP Training", value: "VIP Training", description: "Evaluate a VIP training session." },
+        { label: "Guarding Evaluation", value: "Guarding Evaluation", description: "Evaluate a guarding shift." },
+        { label: "Hosting Evaluation", value: "Hosting Evaluation", description: "Evaluate an event host." },
         { label: "Host Rating", value: HOST_RATING_EVENT_TYPE, description: "Rate a host's event with positives, negatives, and a score out of 10." },
       );
     await interaction.reply({
@@ -2286,9 +2287,12 @@ function formatUptime(seconds: number): string {
 export function commandDescriptions(): string[] {
   return commands.flatMap((command) => {
     const json = command.toJSON();
+    const lines = [`• **/${json.name}** — ${json.description}`];
     const subcommands = (json.options ?? []).filter((option) => option.type === ApplicationCommandOptionType.Subcommand);
-    if (!subcommands.length) return [`• **/${json.name}** — ${json.description}`];
-    return subcommands.map((subcommand) => `• **/${json.name} ${subcommand.name}** — ${subcommand.description ?? ""}`);
+    for (const subcommand of subcommands) {
+      lines.push(`• **/${json.name} ${subcommand.name}** — ${subcommand.description ?? ""}`);
+    }
+    return lines;
   });
 }
 
@@ -2449,6 +2453,13 @@ export const DATA_VIEW_LABELS: Record<DataView, string> = {
   colors: "Embed Colors",
 };
 
+const DATA_VIEW_DESCRIPTIONS: Record<DataView, string> = {
+  overview: "High-level bot, server, and usage totals.",
+  access: "Authorized users, roles, and command usage.",
+  bot: "Bot build, API health, and Ollama status.",
+  colors: "Current embed and chart color settings.",
+};
+
 export interface DataStatus {
   robloxApiOnline?: boolean;
   ollama?: ApiCheck;
@@ -2460,6 +2471,7 @@ export function createDataViewMenu(selected: DataView = "overview"): ActionRowBu
     .setPlaceholder(`Viewing ${DATA_VIEW_LABELS[selected]}`)
     .addOptions((Object.keys(DATA_VIEW_LABELS) as DataView[]).map((view) => ({
       label: DATA_VIEW_LABELS[view],
+      description: DATA_VIEW_DESCRIPTIONS[view],
       value: view,
       ...(view === selected ? { default: true } : {}),
     })));

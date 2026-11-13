@@ -258,6 +258,13 @@ function glyphMetrics(character: string): GlyphMetrics {
   return FONT.glyphs[character] ?? FONT.glyphs["?"]!;
 }
 
+// Always format counts with ASCII separators. The glyph atlas has a comma but
+// no locale-specific spacing glyphs, so a locale-dependent formatter would
+// render thousands as "1?252".
+export function formatChartCount(value: number): string {
+  return value.toLocaleString("en-US");
+}
+
 function textWidth(text: string, fontSize: number): number {
   const scale = fontSize / FONT.emSize;
   return [...text].reduce((width, character) => width + glyphMetrics(character).advance * scale, 0);
@@ -370,7 +377,7 @@ export async function makeBadgeChart(
   if (avatar) drawAvatar(png, avatar, 51, 42, 24);
   drawRing(png, 51, 42, 25, lineColor);
   drawText(png, fontAtlas, username, 91, 10, white, 26);
-  drawText(png, fontAtlas, `${dates.length.toLocaleString()} badges | ${dateLabel(dates[0]!)} - ${dateLabel(dates.at(-1)!)}`, 91, 49, labelColor, 14);
+  drawText(png, fontAtlas, `${formatChartCount(dates.length)} badges | ${dateLabel(dates[0]!)} - ${dateLabel(dates.at(-1)!)}`, 91, 49, labelColor, 14);
   const summary = summarizeBadgeHistory(badges);
   if (summary) {
     const accountId = userId ? `ID ${userId}  -  ` : "";
@@ -393,7 +400,7 @@ export async function makeBadgeChart(
   for (let count = 0; count <= axisMaximum; count += axisStep) {
     const y = plotBottom - Math.round((count / axisMaximum) * plotHeight);
     drawLine(png, left, y, width - right, y, grid);
-    const label = count.toLocaleString();
+    const label = formatChartCount(count);
     drawText(png, fontAtlas, label, left - textWidth(label, 11) - 8, y - 5, muted, 11);
   }
   drawText(png, fontAtlas, "Badges earned", left, plotTop - 20, labelColor, 12);

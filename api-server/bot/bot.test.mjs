@@ -42,6 +42,7 @@ const {
   formatHostRatingReport,
   interactionLogLocations,
   makeBadgeChart,
+  formatChartCount,
   matchesInteractionLog,
   paginateEmbed,
   runWithInteractionId,
@@ -121,6 +122,30 @@ test("/info lists full command names including subcommands", () => {
   assert.ok(lines.some((line) => line.startsWith("• **/background check**")));
   assert.ok(lines.some((line) => line.startsWith("• **/badge count**")));
   assert.ok(lines.some((line) => line.startsWith("• **/grade**")));
+});
+
+test("every slash command, subcommand, and option has a short description", () => {
+  for (const command of commands.map((item) => item.toJSON())) {
+    assert.ok(command.description?.trim(), `/${command.name} needs a description`);
+    assert.ok(command.description.length <= 100, `/${command.name} description is too long for Discord`);
+    for (const option of command.options ?? []) {
+      assert.ok(option.description?.trim(), `/${command.name} ${option.name} needs a description`);
+      assert.ok(option.description.length <= 100, `/${command.name} ${option.name} description is too long`);
+      for (const nested of option.options ?? []) {
+        assert.ok(nested.description?.trim(), `/${command.name} ${option.name} ${nested.name} needs a description`);
+      }
+    }
+    for (const line of commandDescriptions().filter((item) => item.includes(`**/${command.name}`))) {
+      assert.match(line, /^• \*\*\/[\w ]+\*\* — \S/, `"${line}" must include a description`);
+    }
+  }
+});
+
+test("admin and data menus describe every option", () => {
+  for (const menu of [createAdminPanelMenu(), createDataViewMenu("access")]) {
+    const options = menu.toJSON().components[0].options;
+    assert.ok(options.every((option) => option.description?.trim()), "every menu option needs a description");
+  }
 });
 
 test("/data opens separate views for access, bot/API, and colors", () => {
@@ -526,6 +551,15 @@ test("renders badge chart text at a higher resolution", async () => {
   const image = await makeBadgeChart("TestUser", [{ addTime: "2024-01-01T00:00:00.000Z" }], "#5865f2");
   assert.equal(image.readUInt32BE(16), 3000);
   assert.equal(image.readUInt32BE(20), 1800);
+});
+
+test("formats chart counts with ASCII thousands separators", () => {
+  assert.equal(formatChartCount(999), "999");
+  assert.equal(formatChartCount(1252), "1,252");
+  assert.equal(formatChartCount(1_000_000), "1,000,000");
+  // The glyph atlas has no locale-specific space glyph, so every character in
+  // a chart label must be a plain digit or comma.
+  assert.match(formatChartCount(1252), /^[0-9,]+$/);
 });
 
 test("keeps only valid novel grading suggestions in sheet-ready format", () => {

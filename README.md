@@ -51,9 +51,13 @@ Any embed with more than five lines of information is split across pages with
 Previous and Next buttons; `/info`, `/data`, `/api`, `/groups`, `/changelog`,
 `/search`, and the background-check/badge reports all paginate. Pages target
 five lines but keep the description and each field whole, so a page can show
-more than five lines when a related block needs it. Every embed uses the same
-footer, `SergeantGuruV2 | HH:MMZ | ID: <interaction ID>`, and the interaction
-log gives clickable links to the server and channel (or DM) next to their IDs.
+more than five lines when a related block needs it. Interaction and
+grading-feedback logs are exempt: every log is sent as one complete embed.
+Every slash command and subcommand has a short description shown in Discord,
+and the admin, data, and grade menus describe each choice. Every embed uses the
+same footer, `SergeantGuruV2 | HH:MMZ | ID: <interaction ID>`, and the
+interaction log gives clickable links to the server and channel (or DM) next to
+their IDs.
 
 The API health endpoint is `http://localhost:<PORT>/api/healthz`.
 

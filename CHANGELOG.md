@@ -1,5 +1,10 @@
 # Change Log
 
+## 2.3.2 - 2026-11-13
+- Logs are never paginated: every interaction and grading-feedback log is sent as one complete embed.
+- Badge-chart counts always use ASCII thousands separators, so totals like `1,252` no longer render as `1?252`.
+- Every slash command and subcommand has a short description, and admin, data, and grade menu options explain their action.
+
 ## 2.3.1 - 2026-11-13
 - Pagination now uses dynamic page sizes: the description and each field stay whole, so related information shares a page and a page can exceed five lines when a block needs it.
 
