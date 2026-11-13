@@ -1,5 +1,8 @@
 # Change Log
 
+## 2.3.5 - 2026-11-13
+- Paginated embeds now target 15 lines per page instead of 5, keeping related sections together with fewer page turns.
+
 ## 2.3.4 - 2026-11-13
 - `/changelog` now paginates one release per section, so long change logs are split across pages instead of being truncated.
 - `/badge count` now uses the universal footer, so every embed ends with `SergeantGuruV2 | HH:MMZ | ID: ...`.

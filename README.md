@@ -49,10 +49,10 @@ owner can use `/admin` to open the access and color settings panel.
 Authorization, daily usage, and settings remain in
 `api-server/bot/data/authorizations.sqlite3`.
 
-Any embed with more than five lines of information is split across pages with
+Any embed with more than fifteen lines of information is split across pages with
 Previous and Next buttons; `/info`, `/data`, `/api`, `/changelog`, and `/search`
-paginate. Pages target five lines but keep the description and each field whole,
-so a page can show more than five lines when a related block needs it.
+paginate. Pages target fifteen lines but keep the description and each field whole,
+so a page can show more than fifteen lines when a related block needs it.
 Interaction and grading-feedback logs are exempt: every log is sent as one
 complete embed. The `/background check`, `/badge count`, `/groups`, and
 `/records` reports are also sent as single embeds without pagination.

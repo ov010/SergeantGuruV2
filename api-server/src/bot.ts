@@ -317,7 +317,7 @@ export function runWithInteractionId<T>(interactionId: string, callback: () => T
 // Pages target PAGE_LINE_LIMIT lines, but logical blocks (the description or one
 // field) are never split, so a page may hold more than the target to keep
 // related information together.
-export const PAGE_LINE_LIMIT = 5;
+export const PAGE_LINE_LIMIT = 15;
 const PAGINATION_TTL_MS = 15 * 60 * 1000;
 type PaginationRow = ActionRowBuilder<MessageActionRowComponentBuilder>;
 
