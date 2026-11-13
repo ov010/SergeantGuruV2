@@ -66,7 +66,10 @@ Discord user IDs to their linked Roblox account and Roblox usernames to their
 linked Discord accounts, then includes those users' logs. `/roblox` shows the
 resolved links directly. Set `BLOXLINK_API_KEY` in `.env` (or as a Codespaces
 secret); without it the Bloxlink-powered parts return a clear configuration
-message and the rest of the bot keeps working.
+message and the rest of the bot keeps working. Bloxlink API keys are
+guild-scoped, so set `BLOXLINK_GUILD_ID` to the Discord server the key was
+issued for (default `1566264464062414881`). Lookups that use a different server
+return a message explaining the mismatch.
 Every slash command and subcommand has a short description shown in Discord,
 and the admin, data, and grade menus describe each choice. Every embed uses the
 same footer, `SergeantGuruV2 | HH:MMZ | ID: <interaction ID>`, and the

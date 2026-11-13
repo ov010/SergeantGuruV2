@@ -37,6 +37,8 @@ const {
   createSearchResultEmbeds,
   buildPaginationFromPages,
   createBloxlinkLookupEmbed,
+  bloxlinkErrorMessage,
+  bloxlinkGuildUrl,
   isDiscordUserId,
   DAILY_COMMAND_LIMIT,
   consumeDailyCommand,
@@ -630,6 +632,28 @@ test("Discord user IDs are distinguished from Roblox usernames", () => {
   assert.equal(isDiscordUserId("12345"), false);
   assert.equal(isDiscordUserId("Tester_123"), false);
   assert.equal(isDiscordUserId("12345678901234567890123"), false);
+});
+
+test("Bloxlink requests use the guild-scoped endpoint", () => {
+  const url = bloxlinkGuildUrl("/discord-to-roblox/123456789012345678");
+  assert.match(url, /^https:\/\/api\.blox\.link\/v4\/public\/guilds\/\d{15,22}\/discord-to-roblox\/123456789012345678$/);
+  assert.match(url, /\/guilds\/1566264464062414881\//);
+});
+
+test("Bloxlink errors explain guild and linkage problems", () => {
+  assert.match(
+    bloxlinkErrorMessage(401, "Guild ID does not match API Key"),
+    /BLOXLINK_GUILD_ID.*does not match this API key/,
+  );
+  assert.match(
+    bloxlinkErrorMessage(404, "Unknown Guild"),
+    /does not recognize server \d+.*Add Bloxlink to that server/,
+  );
+  assert.match(
+    bloxlinkErrorMessage(404, "User not found"),
+    /no linked account for this user in server \d+/,
+  );
+  assert.equal(bloxlinkErrorMessage(500, ""), "Bloxlink could not complete the request (HTTP 500).");
 });
 
 test("/search includes Bloxlink resolution details", () => {

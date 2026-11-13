@@ -86,6 +86,9 @@ if (!token) throw new Error("DISCORD_BOT_TOKEN is required.");
 if (!robloxApiKey) throw new Error("ROBLOX_OPEN_CLOUD_API_KEY is required.");
 const xtrackerApiKey = process.env["XTRACKER_API_KEY"]?.trim() ?? "";
 const bloxlinkApiKey = process.env["BLOXLINK_API_KEY"]?.trim() ?? "";
+// Bloxlink API keys are guild-scoped, so every lookup must name the guild the
+// key belongs to. Override this when the key is issued for another server.
+const bloxlinkGuildId = process.env["BLOXLINK_GUILD_ID"]?.trim() || "1566264464062414881";
 const gradingAiBaseUrl = process.env["OLLAMA_BASE_URL"]?.trim() || "http://127.0.0.1:11434";
 const gradingAiModel = process.env["OLLAMA_MODEL"]?.trim() || "qwen2.5:0.5b";
 
@@ -750,6 +753,25 @@ function bloxlinkText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+export function bloxlinkGuildUrl(path: string): string {
+  return `${BLOXLINK_API}/guilds/${encodeURIComponent(bloxlinkGuildId)}${path}`;
+}
+
+export function bloxlinkErrorMessage(status: number, raw: string): string {
+  const message = raw.trim();
+  if (/guild id does not match api key/i.test(message)) {
+    return `Bloxlink rejected the request because BLOXLINK_GUILD_ID (${bloxlinkGuildId}) does not match this API key. Set BLOXLINK_GUILD_ID to the server the key was issued for.`;
+  }
+  if (/unknown guild/i.test(message)) {
+    return `Bloxlink does not recognize server ${bloxlinkGuildId}. Add Bloxlink to that server, or set BLOXLINK_GUILD_ID to a server where Bloxlink is configured, then try again.`;
+  }
+  if (/user not found/i.test(message)) {
+    return `Bloxlink has no linked account for this user in server ${bloxlinkGuildId}.`;
+  }
+  if (message) return message;
+  return `Bloxlink could not complete the request (HTTP ${status}).`;
+}
+
 async function bloxlinkJson(path: string, signal?: AbortSignal): Promise<JsonObject> {
   if (!bloxlinkApiKey) {
     throw new BotError("Bloxlink is not configured. Add BLOXLINK_API_KEY to the bot environment.");
@@ -759,7 +781,7 @@ async function bloxlinkJson(path: string, signal?: AbortSignal): Promise<JsonObj
     const requestSignal = signal
       ? AbortSignal.any([signal, AbortSignal.timeout(20_000)])
       : AbortSignal.timeout(20_000);
-    response = await fetch(`${BLOXLINK_API}${path}`, {
+    response = await fetch(bloxlinkGuildUrl(path), {
       headers: { Authorization: bloxlinkApiKey },
       signal: requestSignal,
     });
@@ -771,8 +793,8 @@ async function bloxlinkJson(path: string, signal?: AbortSignal): Promise<JsonObj
     throw new BotError("Bloxlink could not be reached right now. Please try again later.");
   }
   const payload = await response.json().catch(() => ({})) as JsonObject;
-  const message = bloxlinkText(payload.error);
-  if (message) throw new BotError(message);
+  const message = bloxlinkText(payload.error) || bloxlinkText(payload.message);
+  if (message) throw new BotError(bloxlinkErrorMessage(response.status, message));
   if (!response.ok) {
     throw new BotError(`Bloxlink could not complete the request (HTTP ${response.status}).`);
   }
