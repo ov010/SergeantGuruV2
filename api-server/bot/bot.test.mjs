@@ -32,6 +32,7 @@ const {
   createInfoEmbed,
   createGradingFeedbackLogEmbed,
   createGroupsEmbed,
+  createRecordsEmbed,
   createInteractionLogEmbed,
   DAILY_COMMAND_LIMIT,
   consumeDailyCommand,
@@ -54,7 +55,7 @@ test("registers only the retained commands", () => {
   const registered = commands.map((command) => command.toJSON());
   assert.deepEqual(
     registered.map(({ name }) => name),
-    ["background", "badge", "grade", "api", "groups", "info", "changelog", "data", "search", "admin"],
+    ["background", "badge", "grade", "api", "groups", "records", "info", "changelog", "data", "search", "admin"],
   );
   assert.equal(registered.find(({ name }) => name === "admin").options?.length ?? 0, 0);
   assert.equal(registered.find(({ name }) => name === "badge").options[0].name, "count");
@@ -121,6 +122,7 @@ test("/info lists full command names including subcommands", () => {
   const lines = commandDescriptions();
   assert.ok(lines.some((line) => line.startsWith("• **/background check**")));
   assert.ok(lines.some((line) => line.startsWith("• **/badge count**")));
+  assert.ok(lines.some((line) => line.startsWith("• **/records**")));
   assert.ok(lines.some((line) => line.startsWith("• **/grade**")));
 });
 
@@ -545,6 +547,29 @@ test("groups embeds omit the invalid empty description", () => {
   assert.equal(embed.description, undefined);
   assert.equal(embed.fields[0].name, "Ranks & Division");
   assert.match(embed.fields[0].value, /CBRN Joint Warfare Operations.*JWO Auxiliary/);
+});
+
+test("/records shows only blacklist, Secret Service, and [x]Tracker records", () => {
+  const embed = createRecordsEmbed(
+    "Guru_Guru1X",
+    "123456789",
+    "• [Blacklist case](https://trello.com/c/blacklist)",
+    "None",
+    "**Entry #1**\n**Reason:** Exploiting",
+  ).toJSON();
+  assert.equal(embed.title, "Records — Guru_Guru1X");
+  assert.equal(embed.url, "https://www.roblox.com/users/123456789/profile");
+  assert.deepEqual(embed.fields.map(({ name }) => name), [
+    "Blacklist Record",
+    "Secret Service Record",
+    "[x]Tracker Records",
+  ]);
+  assert.match(embed.fields[0].value, /Blacklist case/);
+  assert.equal(embed.fields[1].value, "None");
+  assert.match(embed.fields[2].value, /Exploiting/);
+
+  const long = createRecordsEmbed("User", "1", "x".repeat(2000), "None", "None").toJSON();
+  assert.equal(long.fields[0].value.length, 1024, "long record lists are capped at the embed field limit");
 });
 
 test("renders badge chart text at a higher resolution", async () => {

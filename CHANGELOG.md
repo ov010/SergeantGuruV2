@@ -1,5 +1,10 @@
 # Change Log
 
+## 2.3.3 - 2026-11-13
+- `/background check`, `/badge count`, and `/groups` now return one complete embed without pagination.
+- Added `/records` for a focused lookup of blacklist and Secret Service Trello entries plus [x]Tracker marks.
+- `/records` has its own configurable embed color.
+
 ## 2.3.2 - 2026-11-13
 - Logs are never paginated: every interaction and grading-feedback log is sent as one complete embed.
 - Badge-chart counts always use ASCII thousands separators, so totals like `1,252` no longer render as `1?252`.

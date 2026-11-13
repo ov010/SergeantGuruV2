@@ -28,7 +28,9 @@ Requires Node.js 22.13+ and pnpm.
    `OLLAMA_MODEL` can be set in `.env` if needed.
 
 The bot provides `/background check`, `/badge count`, `/grade`, `/api`,
-`/groups`, and `/info`. `/grade` posts its report as plain text, not an embed,
+`/groups`, `/records`, and `/info`. `/records` is a focused lookup that returns
+only the blacklist and Secret Service Trello records plus [x]Tracker marks.
+`/grade` posts its report as plain text, not an embed,
 and capitalizes shortened rubric terms such as OOS, VB and PB while leaving
 ordinary words and names alone. Its evaluation menu includes VIP Training,
 Guarding Evaluation, Hosting Evaluation, and Host Rating; Host Rating collects
@@ -48,11 +50,12 @@ Authorization, daily usage, and settings remain in
 `api-server/bot/data/authorizations.sqlite3`.
 
 Any embed with more than five lines of information is split across pages with
-Previous and Next buttons; `/info`, `/data`, `/api`, `/groups`, `/changelog`,
-`/search`, and the background-check/badge reports all paginate. Pages target
-five lines but keep the description and each field whole, so a page can show
-more than five lines when a related block needs it. Interaction and
-grading-feedback logs are exempt: every log is sent as one complete embed.
+Previous and Next buttons; `/info`, `/data`, `/api`, `/changelog`, and `/search`
+paginate. Pages target five lines but keep the description and each field whole,
+so a page can show more than five lines when a related block needs it.
+Interaction and grading-feedback logs are exempt: every log is sent as one
+complete embed. The `/background check`, `/badge count`, `/groups`, and
+`/records` reports are also sent as single embeds without pagination.
 Every slash command and subcommand has a short description shown in Discord,
 and the admin, data, and grade menus describe each choice. Every embed uses the
 same footer, `SergeantGuruV2 | HH:MMZ | ID: <interaction ID>`, and the

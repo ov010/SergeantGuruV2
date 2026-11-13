@@ -109,6 +109,7 @@ const EMBED_ROLES: Record<string, [string, string]> = {
   "Background Check": ["embed_color_background_check", "Blurple"],
   "Badge Count": ["embed_color_badge_count", "Yellow"],
   "CBRN Groups": ["embed_color_groups", "Blue"],
+  "Records": ["embed_color_records", "Purple"],
   "Bot Interaction": ["embed_color_interaction_log", "Blurple"],
   "AI Grading Rule Candidates - Review Before Adding": ["embed_color_grade_suggestions", "Blurple"],
   "Access Denied": ["embed_color_access_denied", "Red"],
@@ -1035,6 +1036,42 @@ async function fetchXtracker(userId: string, signal?: AbortSignal): Promise<stri
   }
 }
 
+export function createRecordsEmbed(
+  username: string,
+  userId: string,
+  blacklist: string,
+  secret: string,
+  external: string,
+): EmbedBuilder {
+  return new EmbedBuilder()
+    .setTitle(`Records — ${username}`)
+    .setURL(`https://www.roblox.com/users/${userId}/profile`)
+    .setColor(embedColor("Records"))
+    .addFields(
+      { name: "Blacklist Record", value: blacklist.slice(0, 1024), inline: false },
+      { name: "Secret Service Record", value: secret.slice(0, 1024), inline: false },
+      { name: "[x]Tracker Records", value: external.slice(0, 1024), inline: false },
+    )
+    .setFooter({ text: footer() });
+}
+
+async function recordsReport(username: string, signal?: AbortSignal): Promise<EmbedBuilder> {
+  const user = await resolveUser(username, signal);
+  const [blacklistCards, secretCards, external] = await Promise.all([
+    fetchTrelloCards(BLACKLIST_BOARD, user.name, signal),
+    fetchTrelloCards(SECRET_SERVICE_BOARD, user.name, signal),
+    fetchXtracker(user.id, signal),
+  ]);
+  if (signal?.aborted) throw signal.reason;
+  return createRecordsEmbed(
+    user.name,
+    user.id,
+    trelloText(blacklistCards, user.name, "blacklist"),
+    trelloText(secretCards, user.name, "secret"),
+    external,
+  );
+}
+
 async function fetchBadges(userId: string, signal?: AbortSignal): Promise<JsonObject[]> {
   const all: JsonObject[] = [];
   let pageToken = "";
@@ -1377,6 +1414,7 @@ export const ACCESS_CONTROLLED_COMMANDS: ReadonlySet<string> = new Set([
   "background",
   "badge",
   "groups",
+  "records",
   "grade",
   "api",
   "info",
@@ -1899,18 +1937,16 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, use
       });
       return;
     }
-    const pagination = buildPagination(outcome.result.embed, [
-      new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId("advanced-badge-tracking")
-          .setLabel("Advanced Badge Tracking")
-          .setStyle(ButtonStyle.Secondary),
-      ) as PaginationRow,
-    ]);
+    const advancedButton = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId("advanced-badge-tracking")
+        .setLabel("Advanced Badge Tracking")
+        .setStyle(ButtonStyle.Secondary),
+    );
     const message = await interaction.editReply({
-      embeds: pagination.embeds,
+      embeds: [outcome.result.embed],
       files: outcome.result.image ? [outcome.result.image] : [],
-      components: pagination.components,
+      components: [advancedButton],
     });
     if (badgeTrackingByMessage.size >= 500) {
       const oldestMessageId = badgeTrackingByMessage.keys().next().value;
@@ -1968,11 +2004,10 @@ async function sendBadgeCount(interaction: ChatInputCommandInteraction, username
       await interaction.editReply({ embeds: [makeEmbed("Badge Count Timed Out", "The badge count took too long and was cancelled. Please try again.", "Warning")], files: [] });
       return;
     }
-    const pagination = buildPagination(outcome.result.embed);
     await interaction.editReply({
-      embeds: pagination.embeds,
+      embeds: [outcome.result.embed],
       files: outcome.result.image ? [outcome.result.image] : [],
-      components: pagination.components,
+      components: [],
     });
   } catch (error) {
     if (deadlineExpired) {
@@ -2001,10 +2036,27 @@ async function sendGroups(interaction: ChatInputCommandInteraction, username: st
   await interaction.deferReply();
   try {
     const user = await resolveUser(normalized);
-    const pagination = buildPagination(createGroupsEmbed(user.name, await fetchGroups(user.id)));
-    await interaction.editReply({ embeds: pagination.embeds, components: pagination.components });
+    await interaction.editReply({ embeds: [createGroupsEmbed(user.name, await fetchGroups(user.id))] });
   } catch (error) {
     log("Groups lookup failed", error);
+    await interaction.editReply({ embeds: [makeEmbed("Could Not Look Up User", (error as Error).message, "Warning")] });
+  }
+}
+
+async function sendRecords(interaction: ChatInputCommandInteraction, username: string): Promise<void> {
+  if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
+  if (!validateBadgeRate(interaction.user.id)) {
+    await interaction.reply({ embeds: [makeEmbed("Rate Limit Exceeded", "You've reached the rate limit. Please wait before trying again.", "Warning")] });
+    return;
+  }
+  let normalized: string;
+  try { normalized = validateRobloxUsername(username); }
+  catch (error) { await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", (error as Error).message, "Warning")] }); return; }
+  await interaction.deferReply();
+  try {
+    await interaction.editReply({ embeds: [await recordsReport(normalized)] });
+  } catch (error) {
+    log("Records lookup failed", error);
     await interaction.editReply({ embeds: [makeEmbed("Could Not Look Up User", (error as Error).message, "Warning")] });
   }
 }
@@ -2097,6 +2149,13 @@ export const commands = [
       .setName("username")
       .setDescription("The Roblox username to check")
       .setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("records")
+    .setDescription("Look up blacklist, Secret Service, and [x]Tracker records.")
+    .addStringOption((option) => option
+      .setName("username")
+      .setDescription("The Roblox username to check")
+      .setRequired(true)),
   new SlashCommandBuilder().setName("info").setDescription("Show bot statistics, commands, and health."),
   new SlashCommandBuilder()
     .setName("changelog")
@@ -2130,6 +2189,7 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
   if (name === "background" && interaction.options.getSubcommand() === "check") return sendBackgroundCheck(interaction, interaction.options.getString("username", true));
   if (name === "badge" && interaction.options.getSubcommand() === "count") return sendBadgeCount(interaction, interaction.options.getString("username", true));
   if (name === "groups") return sendGroups(interaction, interaction.options.getString("username", true));
+  if (name === "records") return sendRecords(interaction, interaction.options.getString("username", true));
   if (name === "api") return sendApiStatus(interaction);
   if (name === "changelog") {
     if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
