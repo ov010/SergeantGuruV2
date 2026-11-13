@@ -77,20 +77,39 @@ test("changelog shows all recent releases newest first without a version", () =>
   const markdown = "## 2.1.0 - 2026-11-13\n- New command\n- New colors\n## 2.0.0 - 2026-11-12\n- Initial release";
   const recent = createChangelogEmbed(markdown).toJSON();
   assert.equal(recent.title, "Change Log");
-  assert.equal(recent.description, "**2.1.0 - 2026-11-13**\n\n- New command\n- New colors\n\n**2.0.0 - 2026-11-12**\n\n- Initial release");
+  assert.deepEqual(recent.fields.map(({ name }) => name), ["2.1.0 - 2026-11-13", "2.0.0 - 2026-11-12"]);
+  assert.equal(recent.fields[0].value, "- New command\n- New colors");
+  assert.equal(recent.fields[1].value, "- Initial release");
+  assert.match(recent.footer.text, /^SergeantGuruV2 \| \d{2}:\d{2}Z \| ID: /);
   assert.equal(createChangelogEmbed("").toJSON().title, "Change Log Unavailable");
   const long = createChangelogEmbed(`## 2.0.0 - 2026-11-12\n- ${"x".repeat(7000)}`).toJSON();
-  assert.ok(long.description.length <= 4096);
+  assert.ok(long.fields.every(({ value }) => value.length <= 1024), "release text must fit Discord field limits");
+  assert.equal(long.fields.map(({ value }) => value).join("").length, 7002, "splitting must not drop changelog text");
   assert.ok(COLOR_TARGETS.includes("Change Log"));
   assert.ok(COLOR_TARGETS.includes("Change Log Unavailable"));
+});
+
+test("/changelog paginates releases instead of truncating them", () => {
+  const releases = Array.from({ length: 6 }, (_, index) => `## 2.${index}.0 - 2026-11-0${index + 1}\n- Change ${index}`);
+  const pages = paginateEmbed(createChangelogEmbed(releases.join("\n")));
+  assert.ok(pages.length > 1, "multiple releases should span multiple pages");
+  for (const page of pages) {
+    assert.match(page.toJSON().footer.text, /^SergeantGuruV2 \| \d{2}:\d{2}Z \| ID: /, "every page keeps the universal footer");
+  }
+  const shown = pages.flatMap((page) => page.toJSON().fields.map(({ name, value }) => `${name}\n${value}`)).join("\n");
+  for (const index of [0, 1, 2, 3, 4, 5]) {
+    assert.match(shown, new RegExp(`2\\.${index}\\.0`));
+    assert.match(shown, new RegExp(`Change ${index}`));
+  }
 });
 
 test("changelog loads the repository release notes from the bundled runtime path", async () => {
   const embed = (await loadChangelogEmbed()).toJSON();
   assert.equal(embed.title, "Change Log");
-  assert.match(embed.description, /2\.0\.0/);
-  assert.doesNotMatch(embed.description, /1\.[01]\.0/);
-  assert.match(embed.description, /changelog/);
+  const text = embed.fields.map(({ name, value }) => `${name}\n${value}`).join("\n");
+  assert.match(text, /2\.0\.0/);
+  assert.doesNotMatch(text, /1\.[01]\.0/);
+  assert.match(text, /changelog/);
 });
 
 test("all slash commands support guilds, DMs, and private channels", () => {
@@ -567,6 +586,7 @@ test("/records shows only blacklist, Secret Service, and [x]Tracker records", ()
   assert.match(embed.fields[0].value, /Blacklist case/);
   assert.equal(embed.fields[1].value, "None");
   assert.match(embed.fields[2].value, /Exploiting/);
+  assert.match(embed.footer.text, /^SergeantGuruV2 \| \d{2}:\d{2}Z \| ID: /);
 
   const long = createRecordsEmbed("User", "1", "x".repeat(2000), "None", "None").toJSON();
   assert.equal(long.fields[0].value.length, 1024, "long record lists are capped at the embed field limit");

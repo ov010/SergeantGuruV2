@@ -1,5 +1,10 @@
 # Change Log
 
+## 2.3.4 - 2026-11-13
+- `/changelog` now paginates one release per section, so long change logs are split across pages instead of being truncated.
+- `/badge count` now uses the universal footer, so every embed ends with `SergeantGuruV2 | HH:MMZ | ID: ...`.
+- Error messages for background checks, badge counts, groups, and records now use clear fallback text and more specific error titles.
+
 ## 2.3.3 - 2026-11-13
 - `/background check`, `/badge count`, and `/groups` now return one complete embed without pagination.
 - Added `/records` for a focused lookup of blacklist and Secret Service Trello entries plus [x]Tracker marks.

@@ -121,6 +121,8 @@ const EMBED_ROLES: Record<string, [string, string]> = {
   "Invalid Roblox Username": ["embed_color_invalid_username", "Orange"],
   "Background Check Timed Out": ["embed_color_background_timeout", "Orange"],
   "Could Not Look Up User": ["embed_color_lookup_error", "Orange"],
+  "Could Not Load Groups": ["embed_color_groups_error", "Orange"],
+  "Could Not Load Records": ["embed_color_records_error", "Orange"],
   "Badge Count Timed Out": ["embed_color_badge_timeout", "Orange"],
   "Could Not Load Badge Count": ["embed_color_badge_error", "Orange"],
   "Server Required": ["embed_color_server_required", "Orange"],
@@ -225,6 +227,12 @@ const interactionContext = new AsyncLocalStorage<string>();
 function log(message: string, error?: unknown) {
   if (error) console.error(`[badge-bot] ${message}`, error);
   else console.log(`[badge-bot] ${message}`);
+}
+
+// Keep user-facing failures readable even when a thrown value has no message.
+function errorText(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message.trim() : "";
+  return message || fallback;
 }
 
 async function sendLogEmbed(embed: EmbedBuilder): Promise<void> {
@@ -1358,7 +1366,8 @@ async function badgeCountReport(username: string, signal: AbortSignal): Promise<
   const embed = new EmbedBuilder()
     .setTitle(user.name)
     .setURL(profile)
-    .setColor(embedColor("Badge Count"));
+    .setColor(embedColor("Badge Count"))
+    .setFooter({ text: footer() });
 
   if (!summary) {
     embed.addFields({ name: "Advanced Badge Tracking", value: "No badge award history is available for this account." });
@@ -1909,7 +1918,7 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, use
   try {
     normalized = validateRobloxUsername(username);
   } catch (error) {
-    await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", (error as Error).message, "Warning")] });
+    await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] });
     return;
   }
   await interaction.deferReply();
@@ -1965,7 +1974,7 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, use
       return;
     }
     log("Background check failed", error);
-    await interaction.editReply({ embeds: [makeEmbed("Could Not Look Up User", error instanceof Error ? error.message : "Something went wrong while processing this Roblox user. Please try again.", "Warning")] });
+    await interaction.editReply({ embeds: [makeEmbed("Could Not Look Up User", errorText(error, "Something went wrong while processing this Roblox user. Please try again."), "Warning")] });
   } finally {
     clearTimeout(timeout!);
   }
@@ -1981,7 +1990,7 @@ async function sendBadgeCount(interaction: ChatInputCommandInteraction, username
   try {
     normalized = validateRobloxUsername(username);
   } catch (error) {
-    await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", (error as Error).message, "Warning")] });
+    await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] });
     return;
   }
   await interaction.deferReply();
@@ -2016,7 +2025,7 @@ async function sendBadgeCount(interaction: ChatInputCommandInteraction, username
     }
     log("Badge count failed", error);
     await interaction.editReply({
-      embeds: [makeEmbed("Could Not Load Badge Count", error instanceof Error ? error.message : "Something went wrong while loading badge history. Please try again.", "Warning")],
+      embeds: [makeEmbed("Could Not Load Badge Count", errorText(error, "Something went wrong while loading badge history. Please try again."), "Warning")],
       components: [],
     });
   } finally {
@@ -2032,14 +2041,14 @@ async function sendGroups(interaction: ChatInputCommandInteraction, username: st
   }
   let normalized: string;
   try { normalized = validateRobloxUsername(username); }
-  catch (error) { await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", (error as Error).message, "Warning")] }); return; }
+  catch (error) { await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] }); return; }
   await interaction.deferReply();
   try {
     const user = await resolveUser(normalized);
     await interaction.editReply({ embeds: [createGroupsEmbed(user.name, await fetchGroups(user.id))] });
   } catch (error) {
     log("Groups lookup failed", error);
-    await interaction.editReply({ embeds: [makeEmbed("Could Not Look Up User", (error as Error).message, "Warning")] });
+    await interaction.editReply({ embeds: [makeEmbed("Could Not Load Groups", errorText(error, "Something went wrong while loading this user's CBRN groups. Please try again."), "Warning")] });
   }
 }
 
@@ -2051,13 +2060,13 @@ async function sendRecords(interaction: ChatInputCommandInteraction, username: s
   }
   let normalized: string;
   try { normalized = validateRobloxUsername(username); }
-  catch (error) { await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", (error as Error).message, "Warning")] }); return; }
+  catch (error) { await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] }); return; }
   await interaction.deferReply();
   try {
     await interaction.editReply({ embeds: [await recordsReport(normalized)] });
   } catch (error) {
     log("Records lookup failed", error);
-    await interaction.editReply({ embeds: [makeEmbed("Could Not Look Up User", (error as Error).message, "Warning")] });
+    await interaction.editReply({ embeds: [makeEmbed("Could Not Load Records", errorText(error, "Something went wrong while loading this user's records. Please try again."), "Warning")] });
   }
 }
 
@@ -2102,12 +2111,34 @@ export function createChangelogEmbed(markdown: string): EmbedBuilder {
   if (!entries.length) {
     return makeEmbed("Change Log Unavailable", "No releases are recorded in the change log yet.", "Warning");
   }
-  const description = entries.map((entry) => [
-    `**${entry.version} - ${entry.date}**`,
-    "",
-    ...entry.descriptions.map((text) => `- ${text}`),
-  ].join("\n")).join("\n\n");
-  return makeEmbed("Change Log", description.length > 4096 ? `${description.slice(0, 4093)}...` : description, "Info");
+  // One field per release lets pagination split releases across pages instead
+  // of truncating the whole change log to a single description.
+  const embed = makeEmbed("Change Log", "Every release, newest first.", "Info");
+  embed.addFields(entries.flatMap(changelogEntryFields));
+  return embed;
+}
+
+function chunkText(text: string, limit: number): string[] {
+  const chunks: string[] = [];
+  let remaining = text;
+  while (remaining.length > limit) {
+    let cut = remaining.lastIndexOf("\n", limit);
+    if (cut <= 0) cut = limit;
+    chunks.push(remaining.slice(0, cut));
+    remaining = remaining.slice(cut).replace(/^\n/, "");
+  }
+  if (remaining) chunks.push(remaining);
+  return chunks;
+}
+
+function changelogEntryFields(entry: ChangelogEntry): Array<{ name: string; value: string; inline: boolean }> {
+  const text = entry.descriptions.map((description) => `- ${description}`).join("\n") || "No changes recorded.";
+  const chunks = chunkText(text, 1024);
+  return chunks.map((value, index) => ({
+    name: `${entry.version} - ${entry.date}${index ? " (cont.)" : ""}`.slice(0, 256),
+    value,
+    inline: false,
+  }));
 }
 
 export async function loadChangelogEmbed(): Promise<EmbedBuilder> {
@@ -3157,7 +3188,7 @@ client.on("interactionCreate", async (interaction) => {
     }
   } catch (error) {
     log("Interaction handler failed", error);
-    const message = error instanceof Error ? error.message : "Something went wrong.";
+    const message = errorText(error, "Something went wrong.");
     if (interaction.isRepliable()) {
       const payload = { embeds: [makeEmbed("Command Error", message.slice(0, 1500), "Error")] };
       if (interaction.deferred || interaction.replied) await interaction.followUp(payload).catch(() => undefined);
