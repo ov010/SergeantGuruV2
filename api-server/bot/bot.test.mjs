@@ -36,6 +36,8 @@ const {
   createInteractionLogEmbed,
   createSearchResultEmbeds,
   buildPaginationFromPages,
+  createBloxlinkLookupEmbed,
+  isDiscordUserId,
   DAILY_COMMAND_LIMIT,
   consumeDailyCommand,
   resetDailyCommandUsage,
@@ -57,13 +59,18 @@ test("registers only the retained commands", () => {
   const registered = commands.map((command) => command.toJSON());
   assert.deepEqual(
     registered.map(({ name }) => name),
-    ["background", "badge", "grade", "api", "groups", "records", "info", "changelog", "data", "search", "admin"],
+    ["background", "badge", "grade", "api", "groups", "records", "info", "changelog", "data", "search", "roblox", "admin"],
   );
   assert.equal(registered.find(({ name }) => name === "admin").options?.length ?? 0, 0);
   assert.equal(registered.find(({ name }) => name === "badge").options[0].name, "count");
   assert.equal(registered.find(({ name }) => name === "search").options[0].name, "query");
+  assert.equal(registered.find(({ name }) => name === "roblox").options[0].name, "query");
   assert.equal(registered.find(({ name }) => name === "changelog").options?.length ?? 0, 0);
   assert.match(registered.find(({ name }) => name === "search").description, /every logged interaction by username, user ID, or interaction ID/);
+  assert.match(registered.find(({ name }) => name === "roblox").description, /linked through Bloxlink/);
+  assert.match(registered.find(({ name }) => name === "background").options[0].options[0].description, /Discord user ID/);
+  assert.match(registered.find(({ name }) => name === "records").options[0].description, /Discord user ID/);
+  assert.ok(ACCESS_CONTROLLED_COMMANDS.has("roblox"), "Bloxlink lookups require access");
 });
 
 test("changelog parses newest-first releases, CRLF bullets, and ignores malformed sections", () => {
@@ -583,6 +590,65 @@ test("/search reports when the scan limit was reached", () => {
     capped.description,
     "Found 1 matching interaction for **tester** in the latest 100,000 log messages (search limit reached).",
   );
+});
+
+test("Bloxlink lookups render linked Roblox and Discord accounts", () => {
+  const account = {
+    id: "1234567890",
+    name: "Tester",
+    profileLink: "https://www.roblox.com/users/1234567890/profile",
+  };
+  const forward = createBloxlinkLookupEmbed(
+    "123456789012345678",
+    account,
+    ["123456789012345678", "223456789012345678"],
+  ).toJSON();
+  assert.equal(forward.title, "Bloxlink Lookup");
+  assert.match(forward.description, /Accounts linked through Bloxlink/);
+  assert.match(forward.fields[0].value, /\[Tester\]\(https:\/\/www\.roblox\.com\/users\/1234567890\/profile\) \(1234567890\)/);
+  assert.match(forward.fields[1].value, /<@123456789012345678> \(123456789012345678\)/);
+  assert.match(forward.fields[1].value, /<@223456789012345678> \(223456789012345678\)/);
+  assert.match(forward.footer.text, /^SergeantGuruV2 \| \d{2}:\d{2}Z \| ID: /);
+
+  const reverse = createBloxlinkLookupEmbed("Tester", account, []).toJSON();
+  assert.match(reverse.description, /no Discord accounts linked to Roblox user/);
+  assert.equal(reverse.fields.length, 1);
+
+  const forwardOnly = createBloxlinkLookupEmbed("123456789012345678", account, []).toJSON();
+  assert.match(forwardOnly.description, /The Roblox account linked to Discord user/);
+
+  const none = createBloxlinkLookupEmbed("Tester", null, []).toJSON();
+  assert.match(none.description, /no Discord accounts linked to Roblox user/);
+  assert.equal(none.fields?.length ?? 0, 0);
+  assert.ok(COLOR_TARGETS.includes("Bloxlink Lookup"));
+  assert.ok(COLOR_TARGETS.includes("Bloxlink Lookup Failed"));
+});
+
+test("Discord user IDs are distinguished from Roblox usernames", () => {
+  assert.equal(isDiscordUserId("123456789012345678"), true);
+  assert.equal(isDiscordUserId(" 12345678901234567890 "), true);
+  assert.equal(isDiscordUserId("12345"), false);
+  assert.equal(isDiscordUserId("Tester_123"), false);
+  assert.equal(isDiscordUserId("12345678901234567890123"), false);
+});
+
+test("/search includes Bloxlink resolution details", () => {
+  const results = [{
+    action: "Badge Count",
+    access: "GRANTED",
+    user: "<@123456789012345678>",
+    userId: "123456789012345678",
+    interactionId: "223456789012345678",
+    url: "https://discord.com/channels/1/2/3",
+  }];
+  const pages = createSearchResultEmbeds(
+    "Tester",
+    results,
+    10,
+    true,
+    "Bloxlink: [Tester](https://www.roblox.com/users/1234567890/profile) (1234567890) → <@123456789012345678>.",
+  );
+  assert.match(pages[0].toJSON().description, /Bloxlink: \[Tester\]/);
 });
 
 test("pagination controls step through valid pages", () => {

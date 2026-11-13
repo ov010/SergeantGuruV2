@@ -28,8 +28,11 @@ Requires Node.js 22.13+ and pnpm.
    `OLLAMA_MODEL` can be set in `.env` if needed.
 
 The bot provides `/background check`, `/badge count`, `/grade`, `/api`,
-`/groups`, `/records`, and `/info`. `/records` is a focused lookup that returns
-only the blacklist and Secret Service Trello records plus [x]Tracker marks.
+`/groups`, `/records`, `/roblox`, and `/info`. `/records` is a focused lookup
+that returns only the blacklist and Secret Service Trello records plus
+[x]Tracker marks. `/roblox` uses Bloxlink to translate between Discord user IDs
+and Roblox accounts. `/background check` and `/records` also accept a linked
+Discord user ID in place of a Roblox username.
 `/grade` posts its report as plain text, not an embed,
 and capitalizes shortened rubric terms such as OOS, VB and PB while leaving
 ordinary words and names alone. Its evaluation menu includes VIP Training,
@@ -58,7 +61,12 @@ complete embed. The `/background check`, `/badge count`, `/groups`, and
 `/records` reports are also sent as single embeds without pagination.
 `/search` scans the full interaction-log history (up to 100,000 messages) and
 returns every matching entry, not just the latest few; if the cap is reached,
-the results say so.
+the results say so. When `BLOXLINK_API_KEY` is set, `/search` also resolves
+Discord user IDs to their linked Roblox account and Roblox usernames to their
+linked Discord accounts, then includes those users' logs. `/roblox` shows the
+resolved links directly. Set `BLOXLINK_API_KEY` in `.env` (or as a Codespaces
+secret); without it the Bloxlink-powered parts return a clear configuration
+message and the rest of the bot keeps working.
 Every slash command and subcommand has a short description shown in Discord,
 and the admin, data, and grade menus describe each choice. Every embed uses the
 same footer, `SergeantGuruV2 | HH:MMZ | ID: <interaction ID>`, and the

@@ -1,5 +1,11 @@
 # Change Log
 
+## 2.4.0 - 2026-11-13
+- Added optional Bloxlink integration using `BLOXLINK_API_KEY` to translate between Discord user IDs and Roblox accounts.
+- Added `/roblox` to look up the Roblox account linked to a Discord user ID, or the Discord accounts linked to a Roblox username.
+- `/search` now includes logs from linked accounts when a Discord ID or Roblox username is resolved through Bloxlink.
+- `/background check` and `/records` now accept a linked Discord user ID in place of a Roblox username.
+
 ## 2.3.7 - 2026-11-13
 - Fixed `/search` failing with `Invalid number value` when a query matched more than 25 log entries.
 - Search results are now split into safe pages before rendering, so any number of matches can be shown without exceeding Discord's embed limits.

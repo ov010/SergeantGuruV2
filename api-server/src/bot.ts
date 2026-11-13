@@ -65,6 +65,7 @@ const ROBLOX_GAMES = "https://games.roblox.com/v2/users";
 const ROBLOX_AVATAR = "https://avatar.roblox.com/v1/users";
 const TRELLO_API = "https://api.trello.com/1";
 const XTRACKER_API = "https://api.xtracker.xyz";
+const BLOXLINK_API = "https://api.blox.link/v4/public";
 const BLACKLIST_BOARD = "gsCa53Bt";
 const SECRET_SERVICE_BOARD = "xgGFFrH3";
 const NONE = "None";
@@ -84,6 +85,7 @@ const robloxApiKey = process.env["ROBLOX_OPEN_CLOUD_API_KEY"]?.trim();
 if (!token) throw new Error("DISCORD_BOT_TOKEN is required.");
 if (!robloxApiKey) throw new Error("ROBLOX_OPEN_CLOUD_API_KEY is required.");
 const xtrackerApiKey = process.env["XTRACKER_API_KEY"]?.trim() ?? "";
+const bloxlinkApiKey = process.env["BLOXLINK_API_KEY"]?.trim() ?? "";
 const gradingAiBaseUrl = process.env["OLLAMA_BASE_URL"]?.trim() || "http://127.0.0.1:11434";
 const gradingAiModel = process.env["OLLAMA_MODEL"]?.trim() || "qwen2.5:0.5b";
 
@@ -134,6 +136,8 @@ const EMBED_ROLES: Record<string, [string, string]> = {
   "Invalid Search Query": ["embed_color_search_invalid", "Orange"],
   "No Interactions Found": ["embed_color_search_empty", "Orange"],
   "Interaction Search Results": ["embed_color_search_results", "Green"],
+  "Bloxlink Lookup": ["embed_color_bloxlink_lookup", "Blurple"],
+  "Bloxlink Lookup Failed": ["embed_color_bloxlink_error", "Orange"],
   "Bot Data": ["embed_color_bot_data", "Blurple"],
   "Badge Tracking Expired": ["embed_color_badge_tracking_expired", "Orange"],
   "Advanced Badge Tracking": ["embed_color_badge_tracking", "Blurple"],
@@ -728,6 +732,87 @@ async function resolveUser(username: string, signal?: AbortSignal): Promise<{ id
   const user = payload.data?.[0];
   if (!user) throw new BotError(`No Roblox user was found for ${username}.`);
   return { id: String(user.id), name: String(user.name) };
+}
+
+// Discord snowflakes are 15-22 digits. Shorter numbers are treated as Roblox
+// usernames so existing lookups keep working unchanged.
+export function isDiscordUserId(value: string): boolean {
+  return /^\d{15,22}$/.test(value.trim());
+}
+
+export interface BloxlinkAccount {
+  id: string;
+  name: string;
+  profileLink: string;
+}
+
+function bloxlinkText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+async function bloxlinkJson(path: string, signal?: AbortSignal): Promise<JsonObject> {
+  if (!bloxlinkApiKey) {
+    throw new BotError("Bloxlink is not configured. Add BLOXLINK_API_KEY to the bot environment.");
+  }
+  let response: Response;
+  try {
+    const requestSignal = signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(20_000)])
+      : AbortSignal.timeout(20_000);
+    response = await fetch(`${BLOXLINK_API}${path}`, {
+      headers: { Authorization: bloxlinkApiKey },
+      signal: requestSignal,
+    });
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      throw new BotError("Bloxlink took too long to respond. Please try again.");
+    }
+    throw new BotError("Bloxlink could not be reached right now. Please try again later.");
+  }
+  const payload = await response.json().catch(() => ({})) as JsonObject;
+  const message = bloxlinkText(payload.error);
+  if (message) throw new BotError(message);
+  if (!response.ok) {
+    throw new BotError(`Bloxlink could not complete the request (HTTP ${response.status}).`);
+  }
+  return payload;
+}
+
+export async function bloxlinkDiscordToRoblox(discordId: string, signal?: AbortSignal): Promise<BloxlinkAccount> {
+  const payload = await bloxlinkJson(`/discord-to-roblox/${encodeURIComponent(discordId)}`, signal);
+  const id = bloxlinkText(payload.robloxID);
+  if (!/^\d+$/.test(id)) throw new BotError("Bloxlink has no Roblox account linked to this Discord user.");
+  const resolved = payload.resolved?.roblox as JsonObject | undefined;
+  let name = bloxlinkText(resolved?.name);
+  // The global response can omit the resolved profile; fetch the username so
+  // commands that need a username keep working.
+  if (!name) {
+    try {
+      const details = await robloxJson(`${ROBLOX_USERS}/users/${id}`, { signal });
+      name = bloxlinkText(details.name);
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      log("Bloxlink linked Roblox profile unavailable", error);
+    }
+  }
+  const profileLink = bloxlinkText(resolved?.profileLink) || `https://www.roblox.com/users/${id}/profile`;
+  return { id, name: name || id, profileLink };
+}
+
+export async function bloxlinkRobloxToDiscord(robloxId: string, signal?: AbortSignal): Promise<string[]> {
+  const payload = await bloxlinkJson(`/roblox-to-discord/${encodeURIComponent(robloxId)}`, signal);
+  const ids = Array.isArray(payload.discordIDs) ? payload.discordIDs.map(String) : [];
+  return [...new Set(ids.filter((id) => isDiscordUserId(id)))];
+}
+
+// Roblox lookup commands accept a username or a Discord user ID linked through
+// Bloxlink, so the rest of the report pipeline still works with a username.
+async function resolveLookupUsername(input: string, signal?: AbortSignal): Promise<string> {
+  const value = input.trim();
+  if (!isDiscordUserId(value)) return validateRobloxUsername(value);
+  const account = await bloxlinkDiscordToRoblox(value, signal);
+  return validateRobloxUsername(account.name);
 }
 
 async function cachedRoblox<T>(key: string, ttl: number, fetcher: () => Promise<T>, signal?: AbortSignal): Promise<T> {
@@ -1442,6 +1527,7 @@ export const ACCESS_CONTROLLED_COMMANDS: ReadonlySet<string> = new Set([
   "changelog",
   "data",
   "search",
+  "roblox",
 ]);
 
 // Authorized users get 50 access-controlled commands per UTC day; the owner is exempt.
@@ -1926,12 +2012,14 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, use
     await interaction.reply({ embeds: [makeEmbed("Rate Limit Exceeded", "You've reached the rate limit. Please wait before trying again. (0 requests remaining in the next minute)", "Warning")] });
     return;
   }
-  let normalized: string;
-  try {
-    normalized = validateRobloxUsername(username);
-  } catch (error) {
-    await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] });
-    return;
+  let normalized: string | undefined;
+  if (!isDiscordUserId(username)) {
+    try {
+      normalized = validateRobloxUsername(username);
+    } catch (error) {
+      await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] });
+      return;
+    }
   }
   await interaction.deferReply();
   const controller = new AbortController();
@@ -1947,7 +2035,10 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, use
   });
   try {
     const outcome = await Promise.race([
-      backgroundCheck(normalized, controller.signal).then((result) => ({ kind: "ready" as const, result })),
+      (async () => {
+        const resolved = normalized ?? await resolveLookupUsername(username, controller.signal);
+        return { kind: "ready" as const, result: await backgroundCheck(resolved, controller.signal) };
+      })(),
       timedOut,
     ]);
     if (outcome.kind === "timeout" || Date.now() >= deadline) {
@@ -2070,15 +2161,88 @@ async function sendRecords(interaction: ChatInputCommandInteraction, username: s
     await interaction.reply({ embeds: [makeEmbed("Rate Limit Exceeded", "You've reached the rate limit. Please wait before trying again.", "Warning")] });
     return;
   }
-  let normalized: string;
-  try { normalized = validateRobloxUsername(username); }
-  catch (error) { await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] }); return; }
+  let normalized: string | undefined;
+  if (!isDiscordUserId(username)) {
+    try { normalized = validateRobloxUsername(username); }
+    catch (error) { await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] }); return; }
+  }
   await interaction.deferReply();
   try {
-    await interaction.editReply({ embeds: [await recordsReport(normalized)] });
+    const resolved = normalized ?? await resolveLookupUsername(username);
+    await interaction.editReply({ embeds: [await recordsReport(resolved)] });
   } catch (error) {
     log("Records lookup failed", error);
     await interaction.editReply({ embeds: [makeEmbed("Could Not Load Records", errorText(error, "Something went wrong while loading this user's records. Please try again."), "Warning")] });
+  }
+}
+
+export function createBloxlinkLookupEmbed(
+  query: string,
+  account: BloxlinkAccount | null,
+  discordIds: string[],
+): EmbedBuilder {
+  const discordQuery = isDiscordUserId(query);
+  const description = account && discordIds.length
+    ? `Accounts linked through Bloxlink for **${query}**.`
+    : discordQuery
+      ? account
+        ? `The Roblox account linked to Discord user <@${query}>.`
+        : `Bloxlink has no Roblox account linked to Discord user <@${query}>.`
+      : discordIds.length
+        ? `The Discord accounts linked to Roblox user **${query}** through Bloxlink.`
+        : `Bloxlink has no Discord accounts linked to Roblox user **${query}**.`;
+  const embed = makeEmbed("Bloxlink Lookup", description, "Bloxlink Lookup");
+  if (account) {
+    embed.addFields({
+      name: "Roblox",
+      value: `[${account.name.slice(0, 200)}](${account.profileLink}) (${account.id})`,
+      inline: true,
+    });
+  }
+  if (discordIds.length) {
+    embed.addFields({
+      name: discordIds.length === 1 ? "Discord Account" : "Discord Accounts",
+      value: discordIds.map((id) => `<@${id}> (${id})`).join("\n").slice(0, 1024),
+      inline: false,
+    });
+  }
+  return embed;
+}
+
+async function sendBloxlinkLookup(interaction: ChatInputCommandInteraction, rawQuery: string): Promise<void> {
+  if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
+  const query = rawQuery.trim();
+  if (!query || query.length > 32 || (/^\d+$/.test(query) && !isDiscordUserId(query))) {
+    await interaction.reply({ embeds: [makeEmbed("Invalid Search Query", "Enter a Discord user ID or a Roblox username.", "Warning")] });
+    return;
+  }
+  await interaction.deferReply();
+  try {
+    if (isDiscordUserId(query)) {
+      const account = await bloxlinkDiscordToRoblox(query);
+      let linked: string[] = [];
+      try {
+        linked = await bloxlinkRobloxToDiscord(account.id);
+      } catch (error) {
+        log("Bloxlink reverse lookup unavailable", error);
+      }
+      await interaction.editReply({ embeds: [createBloxlinkLookupEmbed(query, account, linked)] });
+      return;
+    }
+    const username = validateRobloxUsername(query);
+    const user = await resolveUser(username);
+    const account: BloxlinkAccount = {
+      id: user.id,
+      name: user.name,
+      profileLink: `https://www.roblox.com/users/${user.id}/profile`,
+    };
+    const linked = await bloxlinkRobloxToDiscord(user.id);
+    await interaction.editReply({ embeds: [createBloxlinkLookupEmbed(query, account, linked)] });
+  } catch (error) {
+    log("Bloxlink lookup failed", error);
+    await interaction.editReply({
+      embeds: [makeEmbed("Bloxlink Lookup Failed", errorText(error, "Could not look up linked accounts through Bloxlink."), "Warning")],
+    });
   }
 }
 
@@ -2171,7 +2335,7 @@ export const commands = [
       .setDescription("Build a full badge-history report for a Roblox user.")
       .addStringOption((option) => option
         .setName("username")
-        .setDescription("The Roblox username to check")
+        .setDescription("The Roblox username or linked Discord user ID to check")
         .setRequired(true))),
   new SlashCommandBuilder()
     .setName("badge")
@@ -2197,7 +2361,7 @@ export const commands = [
     .setDescription("Look up blacklist, Secret Service, and [x]Tracker records.")
     .addStringOption((option) => option
       .setName("username")
-      .setDescription("The Roblox username to check")
+      .setDescription("The Roblox username or linked Discord user ID to check")
       .setRequired(true)),
   new SlashCommandBuilder().setName("info").setDescription("Show bot statistics, commands, and health."),
   new SlashCommandBuilder()
@@ -2209,7 +2373,14 @@ export const commands = [
     .setDescription("Find every logged interaction by username, user ID, or interaction ID.")
     .addStringOption((option) => option
       .setName("query")
-      .setDescription("A Discord username, Discord user ID, or interaction ID")
+      .setDescription("A Discord or Roblox username, Discord user ID, or interaction ID")
+      .setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("roblox")
+    .setDescription("Find Roblox and Discord accounts linked through Bloxlink.")
+    .addStringOption((option) => option
+      .setName("query")
+      .setDescription("A Discord user ID or Roblox username")
       .setRequired(true)),
   new SlashCommandBuilder().setName("admin").setDescription("Open the bot owner admin panel."),
 ].map(configureCommand);
@@ -2233,6 +2404,7 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
   if (name === "badge" && interaction.options.getSubcommand() === "count") return sendBadgeCount(interaction, interaction.options.getString("username", true));
   if (name === "groups") return sendGroups(interaction, interaction.options.getString("username", true));
   if (name === "records") return sendRecords(interaction, interaction.options.getString("username", true));
+  if (name === "roblox") return sendBloxlinkLookup(interaction, interaction.options.getString("query", true));
   if (name === "api") return sendApiStatus(interaction);
   if (name === "changelog") {
     if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
@@ -2303,14 +2475,49 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
     }
 
     await interaction.deferReply();
-    const { messages, scanned, complete } = await findInteractionLogs(query);
+    const terms = new Set<string>([query]);
+    let bloxlinkNote = "";
+    if (bloxlinkApiKey) {
+      if (isDiscordUserId(query)) {
+        try {
+          const account = await bloxlinkDiscordToRoblox(query);
+          terms.add(account.name);
+          terms.add(account.id);
+          let linked: string[] = [];
+          try {
+            linked = await bloxlinkRobloxToDiscord(account.id);
+          } catch (error) {
+            log("Bloxlink reverse lookup unavailable", error);
+          }
+          for (const id of linked) terms.add(id);
+          bloxlinkNote = `Bloxlink: <@${query}> → [${account.name}](${account.profileLink}) (${account.id})${linked.length ? `; linked Discord IDs: ${linked.map((id) => `<@${id}>`).join(", ")}` : ""}.`.slice(0, 2000);
+        } catch (error) {
+          bloxlinkNote = `Bloxlink: ${errorText(error, "Could not resolve this Discord user.")}`;
+        }
+      } else if (/^[a-zA-Z0-9_]{3,20}$/.test(query)) {
+        try {
+          const user = await resolveUser(query);
+          const linked = await bloxlinkRobloxToDiscord(user.id);
+          if (linked.length) {
+            terms.add(user.id);
+            for (const id of linked) terms.add(id);
+            bloxlinkNote = `Bloxlink: [${user.name}](https://www.roblox.com/users/${user.id}/profile) (${user.id}) → ${linked.map((id) => `<@${id}>`).join(", ")}.`;
+          }
+        } catch (error) {
+          log("Bloxlink username resolution unavailable", error);
+        }
+      }
+    }
+    const { messages, scanned, complete } = await findInteractionLogs([...terms]);
+    const termList = [...terms];
     if (!messages.length) {
+      const scope = complete
+        ? `No matching log entries were found for **${query}** across ${scanned.toLocaleString()} scanned log messages.`
+        : `No matching log entries were found for **${query}** in the latest ${scanned.toLocaleString()} log messages (search limit reached).`;
       await interaction.editReply({
         embeds: [makeEmbed(
           "No Interactions Found",
-          complete
-            ? `No matching log entries were found for **${query}** across ${scanned.toLocaleString()} scanned log messages.`
-            : `No matching log entries were found for **${query}** in the latest ${scanned.toLocaleString()} log messages (search limit reached).`,
+          bloxlinkNote ? `${scope}\n${bloxlinkNote}` : scope,
           "Warning",
         )],
       });
@@ -2318,7 +2525,7 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
     }
 
     const results = messages.map((message): InteractionSearchResult => {
-      const audit = message.embeds.find((embed) => matchesInteractionLog(embed, query));
+      const audit = message.embeds.find((embed) => termList.some((term) => matchesInteractionLog(embed, term)));
       const field = (name: string): string => audit?.fields.find((item) => item.name === name)?.value ?? NONE;
       return {
         action: field("Action"),
@@ -2329,7 +2536,7 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
         url: message.url,
       };
     });
-    const pagination = buildPaginationFromPages(createSearchResultEmbeds(query, results, scanned, complete));
+    const pagination = buildPaginationFromPages(createSearchResultEmbeds(query, results, scanned, complete, bloxlinkNote));
     await interaction.editReply({ embeds: pagination.embeds, components: pagination.components });
   }
 }
@@ -2348,11 +2555,13 @@ export function createSearchResultEmbeds(
   results: InteractionSearchResult[],
   scanned: number,
   complete: boolean,
+  note = "",
 ): EmbedBuilder[] {
   const scope = complete
     ? `across ${scanned.toLocaleString()} scanned log messages`
     : `in the latest ${scanned.toLocaleString()} log messages (search limit reached)`;
-  const description = `Found ${results.length.toLocaleString()} matching ${results.length === 1 ? "interaction" : "interactions"} for **${query}** ${scope}.`;
+  const summary = `Found ${results.length.toLocaleString()} matching ${results.length === 1 ? "interaction" : "interactions"} for **${query}** ${scope}.`;
+  const description = (note ? `${summary}\n${note}` : summary).slice(0, 4096);
   // Each result is four lines, so keep to the same 15-line page target as the
   // rest of the bot. This also stays under Discord's 25-field embed limit.
   const resultsPerPage = Math.max(1, Math.floor(PAGE_LINE_LIMIT / 4));
@@ -2400,7 +2609,7 @@ export function matchesInteractionLog(
 
 const MAX_SEARCH_MESSAGES = 100_000;
 
-async function findInteractionLogs(query: string): Promise<{ messages: import("discord.js").Message[]; scanned: number; complete: boolean }> {
+async function findInteractionLogs(queries: readonly string[]): Promise<{ messages: import("discord.js").Message[]; scanned: number; complete: boolean }> {
   const guild = client.guilds.cache.get(BACKGROUND_CHECK_LOG_GUILD_ID)
     ?? await client.guilds.fetch(BACKGROUND_CHECK_LOG_GUILD_ID);
   const channel = await guild.channels.fetch(BACKGROUND_CHECK_LOG_CHANNEL_ID);
@@ -2419,7 +2628,7 @@ async function findInteractionLogs(query: string): Promise<{ messages: import("d
     });
     if (!messages.size) return { messages: matches, scanned, complete: true };
     const batch = [...messages.values()];
-    matches.push(...batch.filter((message) => message.embeds.some((embed) => matchesInteractionLog(embed, query))));
+    matches.push(...batch.filter((message) => message.embeds.some((embed) => queries.some((query) => matchesInteractionLog(embed, query)))));
     scanned += batch.length;
     before = batch.at(-1)?.id;
     if (batch.length < limit) return { messages: matches, scanned, complete: true };
