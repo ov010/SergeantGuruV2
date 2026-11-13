@@ -1,5 +1,9 @@
 # Change Log
 
+## 2.3.7 - 2026-11-13
+- Fixed `/search` failing with `Invalid number value` when a query matched more than 25 log entries.
+- Search results are now split into safe pages before rendering, so any number of matches can be shown without exceeding Discord's embed limits.
+
 ## 2.3.6 - 2026-11-13
 - `/search` now scans the full interaction-log history and returns every matching entry instead of only the latest five.
 - Search results show how many log messages were scanned and warn when the 100,000-message safety cap is reached.

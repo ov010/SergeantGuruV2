@@ -410,17 +410,29 @@ export function buildPagination(
   embed: EmbedBuilder,
   extraRows: PaginationRow[] = [],
 ): { embeds: EmbedBuilder[]; components: PaginationRow[] } {
-  const pages = paginateEmbed(embed);
+  return buildPaginationFromPages(paginateEmbed(embed), extraRows);
+}
+
+// Accepts pre-split pages (such as search results) so builders never exceed
+// Discord's 25-field-per-embed limit before pagination runs.
+export function buildPaginationFromPages(
+  pages: EmbedBuilder[],
+  extraRows: PaginationRow[] = [],
+): { embeds: EmbedBuilder[]; components: PaginationRow[] } {
   if (pages.length <= 1) return { embeds: pages, components: extraRows };
+  const titledPages = pages.map((page, index) => {
+    const data = page.toJSON();
+    return EmbedBuilder.from(data).setTitle(pagedTitle(data.title, index + 1, pages.length));
+  });
   const token = randomBytes(9).toString("hex");
   if (paginationSessions.size >= 1000) {
     const oldest = paginationSessions.keys().next().value;
     if (oldest) paginationSessions.delete(oldest);
   }
-  paginationSessions.set(token, { pages, createdAt: Date.now(), extraRows });
+  paginationSessions.set(token, { pages: titledPages, createdAt: Date.now(), extraRows });
   return {
-    embeds: [pages[0]!],
-    components: [paginationRow(token, 0, pages.length) as PaginationRow, ...extraRows],
+    embeds: [titledPages[0]!],
+    components: [paginationRow(token, 0, titledPages.length) as PaginationRow, ...extraRows],
   };
 }
 
@@ -2317,7 +2329,7 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
         url: message.url,
       };
     });
-    const pagination = buildPagination(createSearchResultsEmbed(query, results, scanned, complete));
+    const pagination = buildPaginationFromPages(createSearchResultEmbeds(query, results, scanned, complete));
     await interaction.editReply({ embeds: pagination.embeds, components: pagination.components });
   }
 }
@@ -2331,29 +2343,40 @@ export interface InteractionSearchResult {
   url: string;
 }
 
-export function createSearchResultsEmbed(
+export function createSearchResultEmbeds(
   query: string,
   results: InteractionSearchResult[],
   scanned: number,
   complete: boolean,
-): EmbedBuilder {
+): EmbedBuilder[] {
   const scope = complete
     ? `across ${scanned.toLocaleString()} scanned log messages`
     : `in the latest ${scanned.toLocaleString()} log messages (search limit reached)`;
-  return makeEmbed(
-    "Interaction Search Results",
-    `Found ${results.length.toLocaleString()} matching ${results.length === 1 ? "interaction" : "interactions"} for **${query}** ${scope}.`,
-    "Success",
-  ).addFields(results.map((result, index) => ({
-    name: `Result ${index + 1}`,
-    value: [
-      `**${result.action.slice(0, 250)}** — ${result.access}`,
-      `User: ${result.user.slice(0, 100)} (${result.userId})`,
-      `Interaction ID: ${result.interactionId}`,
-      `[Jump to log message](${result.url})`,
-    ].join("\n"),
-    inline: false,
-  })));
+  const description = `Found ${results.length.toLocaleString()} matching ${results.length === 1 ? "interaction" : "interactions"} for **${query}** ${scope}.`;
+  // Each result is four lines, so keep to the same 15-line page target as the
+  // rest of the bot. This also stays under Discord's 25-field embed limit.
+  const resultsPerPage = Math.max(1, Math.floor(PAGE_LINE_LIMIT / 4));
+  const pages: EmbedBuilder[] = [];
+  for (let offset = 0; offset < results.length; offset += resultsPerPage) {
+    const chunk = results.slice(offset, offset + resultsPerPage);
+    const page = makeEmbed(
+      "Interaction Search Results",
+      pages.length ? "Continued search results." : description,
+      "Success",
+    );
+    page.addFields(chunk.map((result, index) => ({
+      name: `Result ${offset + index + 1}`,
+      value: [
+        `**${result.action.slice(0, 250)}** — ${result.access}`,
+        `User: ${result.user.slice(0, 100)} (${result.userId})`,
+        `Interaction ID: ${result.interactionId}`,
+        `[Jump to log message](${result.url})`,
+      ].join("\n"),
+      inline: false,
+    })));
+    pages.push(page);
+  }
+  return pages;
 }
 
 export function matchesInteractionLog(

@@ -34,7 +34,8 @@ const {
   createGroupsEmbed,
   createRecordsEmbed,
   createInteractionLogEmbed,
-  createSearchResultsEmbed,
+  createSearchResultEmbeds,
+  buildPaginationFromPages,
   DAILY_COMMAND_LIMIT,
   consumeDailyCommand,
   resetDailyCommandUsage,
@@ -521,7 +522,8 @@ test("a single long field stays together even when it exceeds the page target", 
 });
 
 test("/search embeds every matching log and pagination never drops a result", () => {
-  const results = Array.from({ length: 25 }, (_, index) => {
+  const total = 60;
+  const results = Array.from({ length: total }, (_, index) => {
     const userId = String(100000000000000000n + BigInt(index));
     const interactionId = String(200000000000000000n + BigInt(index));
     return {
@@ -533,30 +535,34 @@ test("/search embeds every matching log and pagination never drops a result", ()
       url: `https://discord.com/channels/1/2/${300000000000000000n + BigInt(index)}`,
     };
   });
-  const embed = createSearchResultsEmbed("tester", results, 1234, true);
-  const json = embed.toJSON();
-  assert.equal(json.title, "Interaction Search Results");
+  const pages = createSearchResultEmbeds("tester", results, 1234, true);
+  assert.ok(pages.length > 1, "large result sets should paginate instead of failing");
+  const json = pages.map((page) => page.toJSON());
   assert.equal(
-    json.description,
-    "Found 25 matching interactions for **tester** across 1,234 scanned log messages.",
+    json[0].description,
+    `Found ${total} matching interactions for **tester** across 1,234 scanned log messages.`,
   );
-  assert.equal(json.fields.length, 25, "every match becomes a search result");
-  assert.match(json.fields[0].value, new RegExp(results[0].userId));
-  assert.match(json.fields[0].value, new RegExp(`Interaction ID: ${results[0].interactionId}`));
-  assert.match(json.fields[24].value, /\[Jump to log message\]\(https:\/\/discord\.com\/channels\/1\/2\//);
-  assert.match(json.footer.text, /^SergeantGuruV2 \| \d{2}:\d{2}Z \| ID: /);
-
-  const pages = paginateEmbed(embed);
-  assert.ok(pages.length > 1, "large result sets should paginate instead of truncating");
-  const shown = pages.flatMap((page) => page.toJSON().fields);
-  assert.equal(shown.length, 25, "pagination must not drop search results");
+  assert.equal(json[0].title, "Interaction Search Results");
+  for (const page of json) {
+    assert.ok(page.fields.length <= 25, "each page must respect Discord's 25-field limit");
+    assert.match(page.footer.text, /^SergeantGuruV2 \| \d{2}:\d{2}Z \| ID: /);
+  }
+  const shown = json.flatMap((page) => page.fields);
+  assert.equal(shown.length, total, "pagination must not drop search results");
   assert.deepEqual(
     shown.map(({ name }) => name),
     results.map((_, index) => `Result ${index + 1}`),
   );
-  for (const page of pages) {
-    assert.match(page.toJSON().footer.text, /^SergeantGuruV2 \| \d{2}:\d{2}Z \| ID: /);
-  }
+  assert.match(shown[0].value, new RegExp(results[0].userId));
+  assert.match(shown[0].value, new RegExp(`Interaction ID: ${results[0].interactionId}`));
+  assert.match(shown[total - 1].value, /\[Jump to log message\]\(https:\/\/discord\.com\/channels\/1\/2\//);
+
+  const pagination = buildPaginationFromPages(pages);
+  assert.equal(pagination.embeds.length, 1);
+  assert.match(pagination.embeds[0].toJSON().title, new RegExp(`\\(Page 1/${pages.length}\\)$`));
+  const buttons = pagination.components[0].toJSON().components;
+  assert.equal(buttons[0].disabled, true);
+  assert.equal(buttons[1].disabled, false);
 });
 
 test("/search reports when the scan limit was reached", () => {
@@ -568,11 +574,11 @@ test("/search reports when the scan limit was reached", () => {
     interactionId: "2000000000000000001",
     url: "https://discord.com/channels/1/2/3",
   };
-  const single = createSearchResultsEmbed("tester", [result], 500, true).toJSON();
+  const single = createSearchResultEmbeds("tester", [result], 500, true)[0].toJSON();
   assert.equal(single.description, "Found 1 matching interaction for **tester** across 500 scanned log messages.");
   assert.equal(single.fields.length, 1);
 
-  const capped = createSearchResultsEmbed("tester", [result], 100000, false).toJSON();
+  const capped = createSearchResultEmbeds("tester", [result], 100000, false)[0].toJSON();
   assert.equal(
     capped.description,
     "Found 1 matching interaction for **tester** in the latest 100,000 log messages (search limit reached).",
