@@ -37,9 +37,13 @@ const {
   consumeDailyCommand,
   resetDailyCommandUsage,
   DATA_VIEW_LABELS,
+  PAGE_LINE_LIMIT,
+  buildPagination,
   formatHostRatingReport,
+  interactionLogLocations,
   makeBadgeChart,
   matchesInteractionLog,
+  paginateEmbed,
   runWithInteractionId,
 } = await import("../dist/bot.mjs");
 const { parseGradeMistakeSuggestions, parseGradeReview, suggestNewGradeMistakes } = await import("../dist/bot-grade-ai.mjs");
@@ -332,8 +336,8 @@ test("interaction log embeds use the same fields for allowed and denied access",
     action: "/background check",
     user: "guru_guru1x",
     userId: "1186370477606838375",
-    server: "1447012918590967880",
-    channel: "1483210528620019908",
+    server: "[CBRN](https://discord.com/channels/1447012918590967880) (1447012918590967880)",
+    channel: "[general](https://discord.com/channels/1447012918590967880/1483210528620019908) (1483210528620019908)",
     interactionId: "1569668990463385620",
     messageLink: "https://discord.com/channels/1447012918590967880/1483210528620019908/1569668990463385621",
   };
@@ -343,6 +347,7 @@ test("interaction log embeds use the same fields for allowed and denied access",
     "Action",
     "Access",
     "User",
+    "Username",
     "User ID",
     "Server",
     "Channel",
@@ -357,12 +362,15 @@ test("interaction log embeds use the same fields for allowed and denied access",
   assert.equal(allowed.fields[1].value, "ALLOWED");
   assert.equal(denied.fields[1].value, "DENIED");
   assert.equal(allowed.fields[2].value, `<@${fields.userId}>`);
-  assert.equal(allowed.fields[3].value, fields.userId);
-  assert.match(allowed.footer.text, /\| User: guru_guru1x$/);
-  assert.equal(allowed.fields[7].value, fields.messageLink);
+  assert.equal(allowed.fields[3].value, "guru_guru1x");
+  assert.equal(allowed.fields[4].value, fields.userId);
+  assert.match(allowed.fields[5].value, /discord\.com\/channels\/1447012918590967880/);
+  assert.match(allowed.fields[6].value, /discord\.com\/channels\/1447012918590967880\/1483210528620019908/);
+  assert.equal(allowed.fields[8].value, fields.messageLink);
   assert.ok(allowed.fields.every(({ inline }) => inline === true));
   assert.ok(denied.fields.every(({ inline }) => inline === true));
   assert.equal(allowed.fields.some(({ name }) => name === "Changed"), false);
+  assert.match(allowed.footer.text, /^SergeantGuruV2 \| \d{2}:\d{2}Z \| ID: (?:N\/A|\d+)$/);
   const adminLog = createInteractionLogEmbed({
     ...fields,
     action: "/admin",
@@ -397,6 +405,83 @@ test("interaction ID is included in embed footers", () => {
   const embed = runWithInteractionId(interactionId, () => createGroupsEmbed("Guru_Guru1X", [])).toJSON();
   assert.match(embed.footer.text, new RegExp(`SergeantGuruV2 \\| .* \\| ID: ${interactionId}`));
   assert.doesNotMatch(embed.footer.text, /\| [a-f0-9]{10} \|/);
+});
+
+test("all embed footers use the universal format even without an interaction context", () => {
+  const embed = createGroupsEmbed("Guru_Guru1X", []).toJSON();
+  assert.match(embed.footer.text, /^SergeantGuruV2 \| \d{2}:\d{2}Z \| ID: N\/A$/);
+});
+
+test("paginates embeds that exceed five lines of information", () => {
+  const interactionId = "1570581254280183828";
+  const info = () => createInfoEmbed({
+    pingMs: 42,
+    servers: 2,
+    totalUsers: 120,
+    uptimeSeconds: 3600,
+    commandCount: commands.length,
+    authorizedUsers: 3,
+    authorizedRoles: 1,
+    botId: "1186370477606838375",
+    memoryMb: 128.4,
+    robloxOnline: true,
+    robloxCloud: true,
+    xtracker: false,
+    ollama: { name: "Ollama (grading AI)", state: "Online", detail: "qwen2.5:0.5b", latencyMs: 8 },
+    dailyUsage: null,
+  });
+  const pages = runWithInteractionId(interactionId, () => paginateEmbed(info()));
+
+  assert.ok(pages.length > 1, "/info needs more than one page");
+  for (const [index, page] of pages.entries()) {
+    const json = page.toJSON();
+    const lines = (json.description ? json.description.split("\n").length : 0)
+      + json.fields.reduce((sum, field) => sum + field.value.split("\n").length, 0);
+    assert.ok(lines <= PAGE_LINE_LIMIT, `page ${index + 1} has ${lines} lines`);
+    assert.match(json.title, new RegExp(`\\(Page ${index + 1}/${pages.length}\\)$`));
+    assert.match(json.footer.text, new RegExp(`^SergeantGuruV2 \\| \\d{2}:\\d{2}Z \\| ID: ${interactionId}$`));
+  }
+
+  const short = runWithInteractionId(interactionId, () => createGroupsEmbed("Guru_Guru1X", []));
+  assert.equal(paginateEmbed(short).length, 1, "short embeds are left alone");
+});
+
+test("pagination controls step through valid pages", () => {
+  const embed = runWithInteractionId("1570581254280183828", () => createApiStatusEmbed(
+    Array.from({ length: 9 }, (_, index) => ({
+      name: `Service ${index + 1}`,
+      state: "Online",
+      detail: "ok",
+    })),
+  ));
+  const pagination = buildPagination(embed);
+  assert.equal(pagination.embeds.length, 1);
+  assert.equal(pagination.components.length, 1);
+
+  const buttons = pagination.components[0].toJSON().components;
+  assert.match(buttons[0].custom_id, /^pager:[a-f0-9]+:-1$/);
+  assert.match(buttons[1].custom_id, /^pager:[a-f0-9]+:1$/);
+  assert.equal(buttons[0].disabled, true);
+  assert.equal(buttons[1].disabled, false);
+});
+
+test("interaction logs link servers, channels, and DMs while keeping IDs", () => {
+  const guild = interactionLogLocations({
+    guildId: "1447012918590967880",
+    guildName: "CBRN",
+    channelId: "1483210528620019908",
+    channelName: "general",
+  });
+  assert.equal(guild.server, "[CBRN](https://discord.com/channels/1447012918590967880) (1447012918590967880)");
+  assert.equal(guild.channel, "[general](https://discord.com/channels/1447012918590967880/1483210528620019908) (1483210528620019908)");
+
+  const dm = interactionLogLocations({
+    guildId: null,
+    channelId: "1483210528620019908",
+    channelName: "friend",
+  });
+  assert.equal(dm.server, "Direct message");
+  assert.equal(dm.channel, "[friend](https://discord.com/channels/@me/1483210528620019908) (1483210528620019908)");
 });
 
 test("groups embeds omit the invalid empty description", () => {

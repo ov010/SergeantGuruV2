@@ -29,6 +29,7 @@ import {
   TextInputStyle,
   type ChatInputCommandInteraction,
   type Interaction,
+  type MessageActionRowComponentBuilder,
   type SlashCommandOptionsOnlyBuilder,
   type SlashCommandSubcommandsOnlyBuilder,
 } from "discord.js";
@@ -232,7 +233,8 @@ async function sendLogEmbed(embed: EmbedBuilder): Promise<void> {
   if (!channel || !("send" in channel)) {
     throw new Error(`Log channel ${BACKGROUND_CHECK_LOG_CHANNEL_ID} was not available.`);
   }
-  await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
+  const pagination = buildPagination(embed);
+  await channel.send({ embeds: pagination.embeds, components: pagination.components, allowedMentions: { parse: [] } });
 }
 
 export interface GradingFeedbackLogEntry {
@@ -272,7 +274,8 @@ async function sendGradingFeedbackLog(embed: EmbedBuilder, userId: string): Prom
     throw new Error(`Grading feedback channel ${GRADING_FEEDBACK_CHANNEL_ID} was not available.`);
   }
   // Keep the owner ping in message content because mentions inside embeds do not notify.
-  await channel.send({ content: `<@${userId}>`, embeds: [embed], allowedMentions: { users: [userId] } });
+  const pagination = buildPagination(embed);
+  await channel.send({ content: `<@${userId}>`, embeds: pagination.embeds, components: pagination.components, allowedMentions: { users: [userId] } });
 }
 
 function getSetting(key: string, fallback: string): string {
@@ -294,11 +297,114 @@ function embedColor(role: string): number {
 
 function footer(): string {
   const interactionId = interactionContext.getStore();
-  return `SergeantGuruV2 | ${new Date().toISOString().slice(11, 16)}Z${interactionId ? ` | ID: ${interactionId}` : ""}`;
+  return `SergeantGuruV2 | ${new Date().toISOString().slice(11, 16)}Z | ID: ${interactionId ?? "N/A"}`;
 }
 
 export function runWithInteractionId<T>(interactionId: string, callback: () => T): T {
   return interactionContext.run(interactionId, callback);
+}
+
+// Any embed with more than PAGE_LINE_LIMIT lines of content is split into paged embeds.
+export const PAGE_LINE_LIMIT = 5;
+const PAGINATION_TTL_MS = 15 * 60 * 1000;
+type PaginationRow = ActionRowBuilder<MessageActionRowComponentBuilder>;
+
+interface PaginationSession {
+  pages: EmbedBuilder[];
+  createdAt: number;
+  extraRows: PaginationRow[];
+}
+
+const paginationSessions = new Map<string, PaginationSession>();
+
+function pagedTitle(title: string | undefined, page: number, total: number): string {
+  const base = (title ?? "").replace(/\s*\(Page \d+\/\d+\)$/, "").trim();
+  return `${base ? `${base} ` : ""}(Page ${page}/${total})`.slice(0, 256);
+}
+
+export function paginateEmbed(embed: EmbedBuilder): EmbedBuilder[] {
+  const data = embed.toJSON();
+  type Unit =
+    | { kind: "description"; text: string }
+    | { kind: "field"; index: number; name: string; text: string; inline: boolean };
+  const units: Unit[] = [];
+
+  if (data.description) {
+    for (const line of data.description.split(/\r?\n/)) {
+      units.push({ kind: "description", text: line });
+    }
+    while (units.length && units.at(-1)!.kind === "description" && !units.at(-1)!.text) units.pop();
+  }
+  (data.fields ?? []).forEach((field, index) => {
+    for (const line of (field.value ?? "").split(/\r?\n/)) {
+      units.push({ kind: "field", index, name: field.name, text: line, inline: field.inline ?? false });
+    }
+  });
+
+  if (units.length <= PAGE_LINE_LIMIT) return [embed];
+
+  const total = Math.ceil(units.length / PAGE_LINE_LIMIT);
+  const pages: EmbedBuilder[] = [];
+  for (let start = 0; start < units.length; start += PAGE_LINE_LIMIT) {
+    const slice = units.slice(start, start + PAGE_LINE_LIMIT);
+    const description: string[] = [];
+    const fields: Array<{ index: number; name: string; value: string[]; inline: boolean }> = [];
+    for (const unit of slice) {
+      if (unit.kind === "description") {
+        description.push(unit.text);
+        continue;
+      }
+      const last = fields.at(-1);
+      if (last && last.index === unit.index) last.value.push(unit.text);
+      else fields.push({ index: unit.index, name: unit.name, value: [unit.text], inline: unit.inline });
+    }
+
+    const page = EmbedBuilder.from(data)
+      .setTitle(pagedTitle(data.title, pages.length + 1, total))
+      .setDescription(description.length ? description.join("\n").slice(0, 4096) : null)
+      .setFields(fields.map((field) => ({
+        name: field.name.slice(0, 256),
+        value: field.value.join("\n").slice(0, 1024) || "\u200b",
+        inline: field.inline,
+      })));
+    // Attachments such as the badge chart belong on the first page only.
+    if (pages.length) page.setImage(null);
+    pages.push(page);
+  }
+  return pages;
+}
+
+function paginationRow(token: string, page: number, total: number): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`pager:${token}:${page - 1}`)
+      .setLabel("Previous")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(page <= 0),
+    new ButtonBuilder()
+      .setCustomId(`pager:${token}:${page + 1}`)
+      .setLabel("Next")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(page >= total - 1),
+  );
+}
+
+export function buildPagination(
+  embed: EmbedBuilder,
+  extraRows: PaginationRow[] = [],
+): { embeds: EmbedBuilder[]; components: PaginationRow[] } {
+  const pages = paginateEmbed(embed);
+  if (pages.length <= 1) return { embeds: pages, components: extraRows };
+  const token = randomBytes(9).toString("hex");
+  if (paginationSessions.size >= 1000) {
+    const oldest = paginationSessions.keys().next().value;
+    if (oldest) paginationSessions.delete(oldest);
+  }
+  paginationSessions.set(token, { pages, createdAt: Date.now(), extraRows });
+  return {
+    embeds: [pages[0]!],
+    components: [paginationRow(token, 0, pages.length) as PaginationRow, ...extraRows],
+  };
 }
 
 function makeEmbed(title: string, description: string, _colorRole: string): EmbedBuilder {
@@ -1357,14 +1463,14 @@ export function createInteractionLogEmbed(entry: InteractionLogEntry): EmbedBuil
       { name: "Action", value: entry.action.slice(0, 1024), inline: true },
       { name: "Access", value: entry.access.toUpperCase(), inline: true },
       { name: "User", value: `<@${entry.userId}>`, inline: true },
+      { name: "Username", value: entry.user.slice(0, 256) || NONE, inline: true },
       { name: "User ID", value: entry.userId, inline: true },
-      { name: "Server", value: entry.server, inline: true },
-      { name: "Channel", value: entry.channel, inline: true },
+      { name: "Server", value: entry.server.slice(0, 1024), inline: true },
+      { name: "Channel", value: entry.channel.slice(0, 1024), inline: true },
       { name: "Interaction ID", value: entry.interactionId, inline: true },
       { name: "Message Link", value: entry.messageLink.slice(0, 1024), inline: true },
     )
-    // Keep the raw username in the footer so /search still matches it after "User" became a mention.
-    .setFooter({ text: `${footer()} | User: ${entry.user}` });
+    .setFooter({ text: footer() });
   if (entry.changed) embed.addFields({ name: "Changed", value: entry.changed.slice(0, 1024), inline: false });
   return embed;
 }
@@ -1378,6 +1484,42 @@ async function interactionMessageLink(interaction: Interaction): Promise<string>
     log("Unable to resolve interaction message link", error);
     return "Unavailable";
   }
+}
+
+export interface InteractionLogLocations {
+  server: string;
+  channel: string;
+}
+
+// Build clickable server/channel links while keeping the raw IDs visible in the log.
+export function interactionLogLocations(input: {
+  guildId?: string | null;
+  guildName?: string | null;
+  channelId?: string | null;
+  channelName?: string | null;
+}): InteractionLogLocations {
+  const { guildId, guildName, channelId, channelName } = input;
+  const serverName = guildName?.trim() || guildId || "Direct message";
+  const server = guildId
+    ? `[${serverName}](https://discord.com/channels/${guildId}) (${guildId})`
+    : "Direct message";
+  if (!channelId) return { server, channel: channelName?.trim() || "Unavailable" };
+  const channelLabel = channelName?.trim() || (guildId ? channelId : "Direct message");
+  const channelUrl = guildId
+    ? `https://discord.com/channels/${guildId}/${channelId}`
+    : `https://discord.com/channels/@me/${channelId}`;
+  return { server, channel: `[${channelLabel}](${channelUrl}) (${channelId})` };
+}
+
+function interactionChannelName(interaction: Interaction): string | undefined {
+  const channel = interaction.channel;
+  if (!channel) return undefined;
+  if ("name" in channel && typeof channel.name === "string" && channel.name) return channel.name;
+  if ("recipient" in channel) {
+    const recipient = (channel as { recipient?: { username?: string } | null }).recipient;
+    if (recipient?.username) return recipient.username;
+  }
+  return undefined;
 }
 
 const adminInteractionChanges = new WeakMap<Interaction, string>();
@@ -1440,10 +1582,16 @@ async function logInteractionAttempt(interaction: Interaction): Promise<void> {
   const audit = { action, access, user: interaction.user.username, userId: interaction.user.id };
   log(`${access === "denied" ? "DENIED interaction attempt" : "Interaction attempt"} ${JSON.stringify(audit)}`);
   const isAdmin = isAdminInteraction(interaction);
+  const location = interactionLogLocations({
+    guildId: interaction.guildId,
+    guildName: interaction.guild?.name,
+    channelId: interaction.channelId,
+    channelName: interactionChannelName(interaction),
+  });
   await sendLogEmbed(createInteractionLogEmbed({
     ...audit,
-    server: interaction.guildId ?? "Direct message",
-    channel: interaction.channelId ?? "Unavailable",
+    server: location.server,
+    channel: location.channel,
     interactionId: interaction.id,
     messageLink: await interactionMessageLink(interaction),
     ...(isAdmin ? {
@@ -1679,7 +1827,7 @@ async function reviewAndLogNewGradeMistakes(
 
   const embed = new EmbedBuilder()
     .setTitle("AI Grading Rule Candidates - Review Before Adding")
-    .setDescription(`The local **${gradingAiModel}** model found possible new rubric entries from a ${eventType} report. These are suggestions only and do not affect grades.`)
+    .setDescription(`The local **${gradingAiModel}** model found possible new rubric entries from a ${eventType} report. These are suggestions only and do not affect grades. Review severity and wording before adding them to the rubric.`)
     .setColor(embedColor("AI Grading Rule Candidates - Review Before Adding"))
     .addFields(
       { name: "Evaluation", value: eventType, inline: true },
@@ -1696,7 +1844,7 @@ async function reviewAndLogNewGradeMistakes(
         inline: false,
       })),
     )
-    .setFooter({ text: `${footer()} | Review severity and wording before adding it to the rubric.` })
+    .setFooter({ text: footer() })
     .setTimestamp(new Date());
   await sendLogEmbed(embed);
 }
@@ -1743,15 +1891,18 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, use
       });
       return;
     }
-    const message = await interaction.editReply({
-      embeds: [outcome.result.embed],
-      files: outcome.result.image ? [outcome.result.image] : [],
-      components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
+    const pagination = buildPagination(outcome.result.embed, [
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
           .setCustomId("advanced-badge-tracking")
           .setLabel("Advanced Badge Tracking")
           .setStyle(ButtonStyle.Secondary),
-      )],
+      ) as PaginationRow,
+    ]);
+    const message = await interaction.editReply({
+      embeds: pagination.embeds,
+      files: outcome.result.image ? [outcome.result.image] : [],
+      components: pagination.components,
     });
     if (badgeTrackingByMessage.size >= 500) {
       const oldestMessageId = badgeTrackingByMessage.keys().next().value;
@@ -1809,10 +1960,11 @@ async function sendBadgeCount(interaction: ChatInputCommandInteraction, username
       await interaction.editReply({ embeds: [makeEmbed("Badge Count Timed Out", "The badge count took too long and was cancelled. Please try again.", "Warning")], files: [] });
       return;
     }
+    const pagination = buildPagination(outcome.result.embed);
     await interaction.editReply({
-      embeds: [outcome.result.embed],
+      embeds: pagination.embeds,
       files: outcome.result.image ? [outcome.result.image] : [],
-      components: [],
+      components: pagination.components,
     });
   } catch (error) {
     if (deadlineExpired) {
@@ -1841,7 +1993,8 @@ async function sendGroups(interaction: ChatInputCommandInteraction, username: st
   await interaction.deferReply();
   try {
     const user = await resolveUser(normalized);
-    await interaction.editReply({ embeds: [createGroupsEmbed(user.name, await fetchGroups(user.id))] });
+    const pagination = buildPagination(createGroupsEmbed(user.name, await fetchGroups(user.id)));
+    await interaction.editReply({ embeds: pagination.embeds, components: pagination.components });
   } catch (error) {
     log("Groups lookup failed", error);
     await interaction.editReply({ embeds: [makeEmbed("Could Not Look Up User", (error as Error).message, "Warning")] });
@@ -1972,7 +2125,8 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
   if (name === "api") return sendApiStatus(interaction);
   if (name === "changelog") {
     if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
-    await interaction.reply({ embeds: [await loadChangelogEmbed()] });
+    const pagination = buildPagination(await loadChangelogEmbed());
+    await interaction.reply({ embeds: pagination.embeds, components: pagination.components });
     return;
   }
   if (name === "grade") {
@@ -2005,31 +2159,28 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
     try { robloxOnline = (await requestJson(`${ROBLOX_USERS}/users/1`)).ok; } catch {}
     const ollama = await checkOllama();
     const guilds = client.guilds.cache;
-    await interaction.reply({
-      embeds: [createInfoEmbed({
-        pingMs: Math.round(client.ws.ping),
-        servers: guilds.size,
-        totalUsers: guilds.reduce((sum, guild) => sum + (guild.memberCount ?? 0), 0),
-        uptimeSeconds: (Date.now() - startTime) / 1000,
-        commandCount: commands.length,
-        authorizedUsers: Number(stats["users"] ?? 0),
-        authorizedRoles: Number(stats["roles"] ?? 0),
-        botId: client.user?.id ?? NONE,
-        memoryMb: process.memoryUsage().rss / 1024 / 1024,
-        robloxOnline,
-        robloxCloud: Boolean(robloxApiKey),
-        xtracker: Boolean(xtrackerApiKey),
-        ollama,
-        dailyUsage: isOwner(interaction.user.id) ? null : dailyCommandUsage(interaction.user.id),
-      })],
-    });
+    const pagination = buildPagination(createInfoEmbed({
+      pingMs: Math.round(client.ws.ping),
+      servers: guilds.size,
+      totalUsers: guilds.reduce((sum, guild) => sum + (guild.memberCount ?? 0), 0),
+      uptimeSeconds: (Date.now() - startTime) / 1000,
+      commandCount: commands.length,
+      authorizedUsers: Number(stats["users"] ?? 0),
+      authorizedRoles: Number(stats["roles"] ?? 0),
+      botId: client.user?.id ?? NONE,
+      memoryMb: process.memoryUsage().rss / 1024 / 1024,
+      robloxOnline,
+      robloxCloud: Boolean(robloxApiKey),
+      xtracker: Boolean(xtrackerApiKey),
+      ollama,
+      dailyUsage: isOwner(interaction.user.id) ? null : dailyCommandUsage(interaction.user.id),
+    }));
+    await interaction.reply({ embeds: pagination.embeds, components: pagination.components });
     return;
   }
   if (name === "data") {
-    await interaction.reply({
-      embeds: [createDataEmbed("overview")],
-      components: [createDataViewMenu("overview")],
-    });
+    const pagination = buildPagination(createDataEmbed("overview"), [createDataViewMenu("overview") as PaginationRow]);
+    await interaction.reply({ embeds: pagination.embeds, components: pagination.components });
     return;
   }
   if (name === "search") {
@@ -2063,13 +2214,12 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
         `[Jump to log message](${message.url})`,
       ].join("\n");
     });
-    await interaction.editReply({
-      embeds: [makeEmbed(
-        "Interaction Search Results",
-        `Found ${messages.length} matching ${messages.length === 1 ? "interaction" : "interactions"} for **${query}**${messages.length > results.length ? `; showing the latest ${results.length}.` : "."}`,
-        "Success",
-      ).addFields(results.map((value, index) => ({ name: `Result ${index + 1}`, value, inline: false })))],
-    });
+    const pagination = buildPagination(makeEmbed(
+      "Interaction Search Results",
+      `Found ${messages.length} matching ${messages.length === 1 ? "interaction" : "interactions"} for **${query}**${messages.length > results.length ? `; showing the latest ${results.length}.` : "."}`,
+      "Success",
+    ).addFields(results.map((value, index) => ({ name: `Result ${index + 1}`, value, inline: false }))));
+    await interaction.editReply({ embeds: pagination.embeds, components: pagination.components });
   }
 }
 
@@ -2081,13 +2231,14 @@ export function matchesInteractionLog(
   const fieldValue = (name: string) => embed.fields.find((field) => field.name === name)?.value?.trim() ?? "";
   const interactionId = fieldValue("Interaction ID");
   const userId = fieldValue("User ID");
-  const username = fieldValue("User").toLowerCase();
+  const username = fieldValue("Username").toLowerCase() || fieldValue("User").toLowerCase();
   const footerId = /\bID: (\d+)(?:$|\s)/.exec(embed.footer?.text ?? "")?.[1];
-  // Newer logs show a mention in "User"; the raw username lives in the footer so search keeps working.
+  // Older logs stored the mention in "User" and the raw username in the footer.
+  const mentionId = /^<@!?(\d+)>$/.exec(fieldValue("User"))?.[1];
   const footerUsername = /\| User: (\S+)/.exec(embed.footer?.text ?? "")?.[1]?.toLowerCase();
 
   return /^\d+$/.test(normalizedQuery)
-    ? interactionId === normalizedQuery || userId === normalizedQuery || footerId === normalizedQuery
+    ? interactionId === normalizedQuery || userId === normalizedQuery || footerId === normalizedQuery || mentionId === normalizedQuery
     : username === normalizedQuery || footerUsername === normalizedQuery;
 }
 
@@ -2257,7 +2408,8 @@ async function sendApiStatus(interaction: ChatInputCommandInteraction): Promise<
     checkOllama(),
   ]);
 
-  await interaction.editReply({ embeds: [createApiStatusEmbed(checks)] });
+  const pagination = buildPagination(createApiStatusEmbed(checks));
+  await interaction.editReply({ embeds: pagination.embeds, components: pagination.components });
 }
 
 export function createApiStatusEmbed(checks: ApiCheck[]): EmbedBuilder {
@@ -2275,22 +2427,10 @@ export function createApiStatusEmbed(checks: ApiCheck[]): EmbedBuilder {
 
 function formatDataList(lines: string[], total: number): string {
   if (!lines.length) return NONE;
-  const included: string[] = [];
-  for (const line of lines) {
-    const candidate = [...included, line];
-    const omitted = Math.max(0, total - candidate.length);
-    const suffix = omitted ? `\n… and ${omitted} more` : "";
-    if (`${candidate.join("\n")}${suffix}`.length > 1024) break;
-    included.push(line);
-  }
-  while (included.length) {
-    const omitted = Math.max(0, total - included.length);
-    const suffix = omitted ? `\n… ${included.length} of ${total} shown (embed limit)` : "";
-    const result = `${included.join("\n")}${suffix}`;
-    if (result.length <= 1024) return result;
-    included.pop();
-  }
-  return `… ${total} entries (embed limit)`.slice(0, 1024);
+  // Pagination now carries long lists; keep a sane ceiling so one view cannot explode.
+  const shown = lines.slice(0, 250);
+  const omitted = Math.max(0, total - shown.length);
+  return `${shown.join("\n")}${omitted ? `\n… and ${omitted} more` : ""}`;
 }
 
 export type DataView = "overview" | "access" | "bot" | "colors";
@@ -2536,8 +2676,24 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply({ embeds: [deniedEmbed("Only the user who requested this background check can view its advanced badge tracking.")] });
         return;
       }
+      const pagination = buildPagination(makeEmbed("Advanced Badge Tracking", tracking.text, "Info"));
       await interaction.reply({
-        embeds: [makeEmbed("Advanced Badge Tracking", tracking.text, "Info")],
+        embeds: pagination.embeds,
+        components: pagination.components,
+      });
+    } else if (interaction.isButton() && interaction.customId.startsWith("pager:")) {
+      const [, token, pageValue] = interaction.customId.split(":");
+      const session = token ? paginationSessions.get(token) : undefined;
+      if (!session || Date.now() - session.createdAt > PAGINATION_TTL_MS) {
+        if (token) paginationSessions.delete(token);
+        await interaction.reply({ embeds: [makeEmbed("Pagination Expired", "This paginated result has expired. Run the command again.", "Warning")] });
+        return;
+      }
+      const page = Number(pageValue);
+      if (!Number.isInteger(page) || page < 0 || page >= session.pages.length) throw new BotError("Choose a valid page.");
+      await interaction.update({
+        embeds: [session.pages[page]!],
+        components: [paginationRow(token!, page, session.pages.length) as PaginationRow, ...session.extraRows],
       });
     } else if (interaction.isButton() && isGradeFeedbackId(interaction.customId)) {
       if (!isInteractionAuthorized(interaction)) {
@@ -2647,9 +2803,10 @@ client.on("interactionCreate", async (interaction) => {
       if (!view || !Object.hasOwn(DATA_VIEW_LABELS, view)) throw new BotError("Choose a valid data view.");
       const dataView = view as DataView;
       const status = dataView === "bot" ? await collectDataStatus() : {};
+      const pagination = buildPagination(createDataEmbed(dataView, status), [createDataViewMenu(dataView) as PaginationRow]);
       await interaction.update({
-        embeds: [createDataEmbed(dataView, status)],
-        components: [createDataViewMenu(dataView)],
+        embeds: pagination.embeds,
+        components: pagination.components,
       });
     } else if (interaction.isStringSelectMenu() && interaction.customId.startsWith("grade-event:")) {
       const ownerId = interaction.customId.slice("grade-event:".length);
@@ -2964,6 +3121,10 @@ const cleanupTimer = setInterval(() => {
     const remaining = times.filter((time) => time > cutoff);
     if (remaining.length) userRequests.set(id, remaining);
     else userRequests.delete(id);
+  }
+  const paginationCutoff = Date.now() - PAGINATION_TTL_MS;
+  for (const [token, session] of paginationSessions) {
+    if (session.createdAt < paginationCutoff) paginationSessions.delete(token);
   }
 }, 60 * 60 * 1000);
 cleanupTimer.unref();

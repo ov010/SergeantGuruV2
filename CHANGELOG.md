@@ -1,5 +1,10 @@
 # Change Log
 
+## 2.3.0 - 2026-11-13
+- Embeds with more than five lines of information are paginated with Previous and Next buttons across `/info`, `/data`, `/api`, `/groups`, `/changelog`, `/search`, and the background-check/badge reports.
+- Interaction logs link the server and channel (or DM) next to their IDs, and keep the raw username in its own field so `/search` still matches it.
+- Every embed now uses the universal footer `SergeantGuruV2 | HH:MMZ | ID: <interaction ID>`.
+
 ## 2.2.0 - 2026-11-13
 - Authorized users can run 50 access-controlled commands per UTC day; the owner is exempt and `/info` shows the remaining allowance.
 - Interaction log embeds show the user as a clickable mention, and `/search` still matches usernames via the footer.

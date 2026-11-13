@@ -47,6 +47,13 @@ owner can use `/admin` to open the access and color settings panel.
 Authorization, daily usage, and settings remain in
 `api-server/bot/data/authorizations.sqlite3`.
 
+Any embed with more than five lines of information is split across pages with
+Previous and Next buttons; `/info`, `/data`, `/api`, `/groups`, `/changelog`,
+`/search`, and the background-check/badge reports all paginate. Every embed
+uses the same footer, `SergeantGuruV2 | HH:MMZ | ID: <interaction ID>`, and the
+interaction log gives clickable links to the server and channel (or DM) next to
+their IDs.
+
 The API health endpoint is `http://localhost:<PORT>/api/healthz`.
 
 Use `/changelog` alone to see all recent updates, newest first. Release history
