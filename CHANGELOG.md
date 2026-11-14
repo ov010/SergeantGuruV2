@@ -1,5 +1,10 @@
 # Change Log
 
+## 2.5.0 - 2026-11-14
+- Removed the Bloxlink integration, including `/roblox`, the `/background check` Discord Query option, and the `BLOXLINK_*` environment variables.
+- `/background check`, `/records`, and the other lookups now accept Roblox usernames only.
+- `/search` no longer resolves linked accounts; it searches the interaction log directly.
+
 ## 2.4.3 - 2026-11-14
 - Bloxlink lookups now fall back to the global API when `BLOXLINK_GLOBAL_API_KEY` is set, so linked users outside your server still resolve.
 - Guild lookups are tried first; the global lookup only runs when the guild lookup reports no linked account.

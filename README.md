@@ -28,13 +28,8 @@ Requires Node.js 22.13+ and pnpm.
    `OLLAMA_MODEL` can be set in `.env` if needed.
 
 The bot provides `/background check`, `/badge count`, `/grade`, `/api`,
-`/groups`, `/records`, `/roblox`, and `/info`. `/records` is a focused lookup
-that returns only the blacklist and Secret Service Trello records plus
-[x]Tracker marks. `/roblox` uses Bloxlink to translate between Discord user IDs
-and Roblox accounts. `/background check` has a `discord` option for a
-**Discord Query**: it resolves a linked Discord user ID through Bloxlink and
-runs the same report, adding a Discord Query field with the linked account.
-`/records` also accepts a linked Discord user ID in place of a Roblox username.
+`/groups`, `/records`, and `/info`. `/records` is a focused lookup that returns
+only the blacklist and Secret Service Trello records plus [x]Tracker marks.
 `/grade` posts its report as plain text, not an embed,
 and capitalizes shortened rubric terms such as OOS, VB and PB while leaving
 ordinary words and names alone. Its evaluation menu includes VIP Training,
@@ -63,18 +58,7 @@ complete embed. The `/background check`, `/badge count`, `/groups`, and
 `/records` reports are also sent as single embeds without pagination.
 `/search` scans the full interaction-log history (up to 100,000 messages) and
 returns every matching entry, not just the latest few; if the cap is reached,
-the results say so. When `BLOXLINK_API_KEY` is set, `/search` also resolves
-Discord user IDs to their linked Roblox account and Roblox usernames to their
-linked Discord accounts, then includes those users' logs. `/roblox` shows the
-resolved links directly. Set `BLOXLINK_API_KEY` in `.env` (or as a Codespaces
-secret); without it the Bloxlink-powered parts return a clear configuration
-message and the rest of the bot keeps working. Bloxlink API keys are
-guild-scoped, so set `BLOXLINK_GUILD_ID` to the Discord server the key was
-issued for (default `1566264464062414881`). Lookups that use a different server
-return a message explaining the mismatch. To resolve linked accounts for
-Discord users who are **not** in your server, add `BLOXLINK_GLOBAL_API_KEY`
-from the Bloxlink Developer API dashboard; the bot tries the guild lookup first,
-then falls back to the global lookup.
+the results say so.
 Every slash command and subcommand has a short description shown in Discord,
 and the admin, data, and grade menus describe each choice. Every embed uses the
 same footer, `SergeantGuruV2 | HH:MMZ | ID: <interaction ID>`, and the
