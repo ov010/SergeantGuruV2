@@ -71,7 +71,10 @@ secret); without it the Bloxlink-powered parts return a clear configuration
 message and the rest of the bot keeps working. Bloxlink API keys are
 guild-scoped, so set `BLOXLINK_GUILD_ID` to the Discord server the key was
 issued for (default `1566264464062414881`). Lookups that use a different server
-return a message explaining the mismatch.
+return a message explaining the mismatch. To resolve linked accounts for
+Discord users who are **not** in your server, add `BLOXLINK_GLOBAL_API_KEY`
+from the Bloxlink Developer API dashboard; the bot tries the guild lookup first,
+then falls back to the global lookup.
 Every slash command and subcommand has a short description shown in Discord,
 and the admin, data, and grade menus describe each choice. Every embed uses the
 same footer, `SergeantGuruV2 | HH:MMZ | ID: <interaction ID>`, and the

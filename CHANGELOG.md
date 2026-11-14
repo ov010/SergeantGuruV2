@@ -1,5 +1,9 @@
 # Change Log
 
+## 2.4.3 - 2026-11-14
+- Bloxlink lookups now fall back to the global API when `BLOXLINK_GLOBAL_API_KEY` is set, so linked users outside your server still resolve.
+- Guild lookups are tried first; the global lookup only runs when the guild lookup reports no linked account.
+
 ## 2.4.2 - 2026-11-13
 - Added a **Discord Query** option to `/background check`, which resolves a linked Discord user ID through Bloxlink and adds the linked account to the report.
 - `/background check` now accepts either a Roblox username or a Discord Query and explains when both or neither are provided.

@@ -86,7 +86,9 @@ if (!token) throw new Error("DISCORD_BOT_TOKEN is required.");
 if (!robloxApiKey) throw new Error("ROBLOX_OPEN_CLOUD_API_KEY is required.");
 const xtrackerApiKey = process.env["XTRACKER_API_KEY"]?.trim() ?? "";
 const bloxlinkApiKey = process.env["BLOXLINK_API_KEY"]?.trim() ?? "";
-// Bloxlink API keys are guild-scoped, so every lookup must name the guild the
+// Global API keys resolve links for users outside the configured guild.
+const bloxlinkGlobalApiKey = process.env["BLOXLINK_GLOBAL_API_KEY"]?.trim() ?? "";
+// Bloxlink API keys are guild-scoped, so guild lookups must name the guild the
 // key belongs to. Override this when the key is issued for another server.
 const bloxlinkGuildId = process.env["BLOXLINK_GUILD_ID"]?.trim() || "1566264464062414881";
 const gradingAiBaseUrl = process.env["OLLAMA_BASE_URL"]?.trim() || "http://127.0.0.1:11434";
@@ -760,8 +762,22 @@ export function bloxlinkGuildUrl(path: string): string {
   return `${BLOXLINK_API}/guilds/${encodeURIComponent(bloxlinkGuildId)}${path}`;
 }
 
-export function bloxlinkErrorMessage(status: number, raw: string): string {
+export function bloxlinkGlobalUrl(path: string): string {
+  return `${BLOXLINK_API}${path}`;
+}
+
+export function bloxlinkErrorMessage(status: number, raw: string, globalLookup = false): string {
   const message = raw.trim();
+  if (globalLookup) {
+    if (/user not found|not found/i.test(message)) {
+      return "Bloxlink has no linked account for this user.";
+    }
+    if (/api key/i.test(message)) {
+      return "Bloxlink rejected the request because BLOXLINK_GLOBAL_API_KEY is not valid.";
+    }
+    if (message) return message;
+    return `Bloxlink could not complete the request (HTTP ${status}).`;
+  }
   if (/guild id does not match api key/i.test(message)) {
     return `Bloxlink rejected the request because BLOXLINK_GUILD_ID (${bloxlinkGuildId}) does not match this API key. Set BLOXLINK_GUILD_ID to the server the key was issued for.`;
   }
@@ -775,17 +791,20 @@ export function bloxlinkErrorMessage(status: number, raw: string): string {
   return `Bloxlink could not complete the request (HTTP ${status}).`;
 }
 
-async function bloxlinkJson(path: string, signal?: AbortSignal): Promise<JsonObject> {
-  if (!bloxlinkApiKey) {
-    throw new BotError("Bloxlink is not configured. Add BLOXLINK_API_KEY to the bot environment.");
+async function bloxlinkJson(path: string, signal?: AbortSignal, globalLookup = false): Promise<JsonObject> {
+  const apiKey = globalLookup ? bloxlinkGlobalApiKey : bloxlinkApiKey;
+  if (!apiKey) {
+    throw new BotError(globalLookup
+      ? "Global Bloxlink lookup is not configured. Add BLOXLINK_GLOBAL_API_KEY to the bot environment."
+      : "Bloxlink is not configured. Add BLOXLINK_API_KEY to the bot environment.");
   }
   let response: Response;
   try {
     const requestSignal = signal
       ? AbortSignal.any([signal, AbortSignal.timeout(20_000)])
       : AbortSignal.timeout(20_000);
-    response = await fetch(bloxlinkGuildUrl(path), {
-      headers: { Authorization: bloxlinkApiKey },
+    response = await fetch(globalLookup ? bloxlinkGlobalUrl(path) : bloxlinkGuildUrl(path), {
+      headers: { Authorization: apiKey },
       signal: requestSignal,
     });
   } catch (error) {
@@ -797,15 +816,39 @@ async function bloxlinkJson(path: string, signal?: AbortSignal): Promise<JsonObj
   }
   const payload = await response.json().catch(() => ({})) as JsonObject;
   const message = bloxlinkText(payload.error) || bloxlinkText(payload.message);
-  if (message) throw new BotError(bloxlinkErrorMessage(response.status, message));
+  if (message) throw new BotError(bloxlinkErrorMessage(response.status, message, globalLookup));
   if (!response.ok) {
     throw new BotError(`Bloxlink could not complete the request (HTTP ${response.status}).`);
   }
   return payload;
 }
 
+// Guild-scoped lookups only work for server members. When a guild key misses,
+// retry with the global key so linked users outside the server still resolve.
+async function bloxlinkLookupJson(path: string, signal?: AbortSignal): Promise<JsonObject> {
+  const attempts = [
+    { globalLookup: false, configured: Boolean(bloxlinkApiKey) },
+    { globalLookup: true, configured: Boolean(bloxlinkGlobalApiKey) },
+  ].filter((attempt) => attempt.configured);
+  if (!attempts.length) {
+    throw new BotError("Bloxlink is not configured. Add BLOXLINK_API_KEY or BLOXLINK_GLOBAL_API_KEY to the bot environment.");
+  }
+  let lastError: unknown;
+  for (const attempt of attempts) {
+    try {
+      return await bloxlinkJson(path, signal, attempt.globalLookup);
+    } catch (error) {
+      lastError = error;
+      const notFound = error instanceof BotError
+        && /no linked account|no roblox account|user not found/i.test(error.message);
+      if (!notFound) throw error;
+    }
+  }
+  throw lastError;
+}
+
 export async function bloxlinkDiscordToRoblox(discordId: string, signal?: AbortSignal): Promise<BloxlinkAccount> {
-  const payload = await bloxlinkJson(`/discord-to-roblox/${encodeURIComponent(discordId)}`, signal);
+  const payload = await bloxlinkLookupJson(`/discord-to-roblox/${encodeURIComponent(discordId)}`, signal);
   const id = bloxlinkText(payload.robloxID);
   if (!/^\d+$/.test(id)) throw new BotError("Bloxlink has no Roblox account linked to this Discord user.");
   const resolved = payload.resolved?.roblox as JsonObject | undefined;
@@ -826,7 +869,7 @@ export async function bloxlinkDiscordToRoblox(discordId: string, signal?: AbortS
 }
 
 export async function bloxlinkRobloxToDiscord(robloxId: string, signal?: AbortSignal): Promise<string[]> {
-  const payload = await bloxlinkJson(`/roblox-to-discord/${encodeURIComponent(robloxId)}`, signal);
+  const payload = await bloxlinkLookupJson(`/roblox-to-discord/${encodeURIComponent(robloxId)}`, signal);
   const ids = Array.isArray(payload.discordIDs) ? payload.discordIDs.map(String) : [];
   return [...new Set(ids.filter((id) => isDiscordUserId(id)))];
 }
@@ -1435,7 +1478,7 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
   const badgeSummary = summarizeBadgeHistory(badges);
   const badgeActivity = badgeSummary
     ? [
-        `**${badges.length.toLocaleString()} badges**`,
+        `**${badges.length.toLocaleString("en-US")} badges**`,
         `• First earned ${discordTimestamp(badgeSummary.firstEarned)} (${discordTimestamp(badgeSummary.firstEarned, "R")})`,
         `• Latest earned ${discordTimestamp(badgeSummary.latestEarned)} (${discordTimestamp(badgeSummary.latestEarned, "R")})`,
         `• Average **${badgeSummary.averagePerYear.toFixed(1)}** per year over ${badgeSummary.totalYears}y`,
@@ -1458,9 +1501,9 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
         aiNote ? `AI observation: ${aiNote}` : "",
         "Blended from rule-based signals and a local AI estimate. The rule score weighs every available signal: account age, badges, friends, followers, following, past usernames, groups and division ranks, avatar items, inventory items, game passes, created games, favourite games and record checks. Keep in mind a user may appear legitimate even if they are an alt, so be cautious and do not rely on it entirely.",
       ].filter(Boolean).join("\n").slice(0, 1024), inline: false },
-    { name: "Friends", value: friends.friends === null ? NONE : friends.friends.toLocaleString(), inline: true },
-    { name: "Following", value: friends.following === null ? NONE : friends.following.toLocaleString(), inline: true },
-    { name: "Followers", value: friends.followers === null ? NONE : friends.followers.toLocaleString(), inline: true },
+    { name: "Friends", value: friends.friends === null ? NONE : friends.friends.toLocaleString("en-US"), inline: true },
+    { name: "Following", value: friends.following === null ? NONE : friends.following.toLocaleString("en-US"), inline: true },
+    { name: "Followers", value: friends.followers === null ? NONE : friends.followers.toLocaleString("en-US"), inline: true },
     { name: "Inventory", value: `[Click Here](https://www.roblox.com/users/${user.id}/inventory/)`, inline: false },
     { name: "Ranks & Division", value: formatGroups(groups).slice(0, 1024), inline: false },
     { name: "Blacklist Record", value: blacklist.slice(0, 1024), inline: false },
@@ -1509,14 +1552,14 @@ async function badgeCountReport(username: string, signal: AbortSignal): Promise<
   embed.addFields({
     name: "Advanced Badge Tracking",
     value: [
-      `**Total badges:** ${badges.length.toLocaleString()}`,
+      `**Total badges:** ${badges.length.toLocaleString("en-US")}`,
       `**First earned:** ${discordTimestamp(summary.firstEarned)} (${discordTimestamp(summary.firstEarned, "R")})`,
       `**Latest earned:** ${discordTimestamp(summary.latestEarned)} (${discordTimestamp(summary.latestEarned, "R")})`,
       `**Average:** ${summary.averagePerYear.toFixed(1)} badges per year across ${summary.totalYears} calendar years`,
-      `**Peak year:** ${summary.peakYear} (${summary.peakYearBadges.toLocaleString()} badges)`,
+      `**Peak year:** ${summary.peakYear} (${summary.peakYearBadges.toLocaleString("en-US")} badges)`,
       `**Activity:** ${summary.activeYears} active years of ${summary.totalYears}`,
       `**Recent awards:** ${summary.last30Days} in the last 30 days, ${summary.last12Months} in the last 12 months`,
-      `**Busiest day:** ${discordTimestamp(summary.busiestDay)} (${summary.busiestDayCount.toLocaleString()} badges)`,
+      `**Busiest day:** ${discordTimestamp(summary.busiestDay)} (${summary.busiestDayCount.toLocaleString("en-US")} badges)`,
       `**Longest quiet period:** ${summary.longestQuietMonths} months`,
       `**Months without awards:** ${summary.monthsWithoutBadgesPercent}%`,
     ].join("\n").slice(0, 1024),
@@ -2578,8 +2621,8 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
     const termList = [...terms];
     if (!messages.length) {
       const scope = complete
-        ? `No matching log entries were found for **${query}** across ${scanned.toLocaleString()} scanned log messages.`
-        : `No matching log entries were found for **${query}** in the latest ${scanned.toLocaleString()} log messages (search limit reached).`;
+        ? `No matching log entries were found for **${query}** across ${scanned.toLocaleString("en-US")} scanned log messages.`
+        : `No matching log entries were found for **${query}** in the latest ${scanned.toLocaleString("en-US")} log messages (search limit reached).`;
       await interaction.editReply({
         embeds: [makeEmbed(
           "No Interactions Found",
@@ -2624,9 +2667,9 @@ export function createSearchResultEmbeds(
   note = "",
 ): EmbedBuilder[] {
   const scope = complete
-    ? `across ${scanned.toLocaleString()} scanned log messages`
-    : `in the latest ${scanned.toLocaleString()} log messages (search limit reached)`;
-  const summary = `Found ${results.length.toLocaleString()} matching ${results.length === 1 ? "interaction" : "interactions"} for **${query}** ${scope}.`;
+    ? `across ${scanned.toLocaleString("en-US")} scanned log messages`
+    : `in the latest ${scanned.toLocaleString("en-US")} log messages (search limit reached)`;
+  const summary = `Found ${results.length.toLocaleString("en-US")} matching ${results.length === 1 ? "interaction" : "interactions"} for **${query}** ${scope}.`;
   const description = (note ? `${summary}\n${note}` : summary).slice(0, 4096);
   // Each result is four lines, so keep to the same 15-line page target as the
   // rest of the bot. This also stays under Discord's 25-field embed limit.
@@ -3011,7 +3054,7 @@ function createDataBotEmbed(status: DataStatus): EmbedBuilder {
         `Ping: ${Math.round(client.ws.ping)} ms`,
         `Bot ID: ${client.user?.id ?? NONE}`,
         `Servers: ${guilds.size}`,
-        `Total users: ${memberCount.toLocaleString()}`,
+        `Total users: ${memberCount.toLocaleString("en-US")}`,
         `Slash commands: ${commands.length}`,
       ].join("\n"),
       inline: true,
@@ -3078,7 +3121,7 @@ export function createInfoEmbed(info: InfoSnapshot): EmbedBuilder {
     { name: "Version", value: BOT_VERSION, inline: true },
     { name: "Ping", value: `${info.pingMs}ms`, inline: true },
     { name: "Servers", value: String(info.servers), inline: true },
-    { name: "Total Users", value: info.totalUsers.toLocaleString(), inline: true },
+    { name: "Total Users", value: info.totalUsers.toLocaleString("en-US"), inline: true },
     { name: "Uptime", value: formatUptime(info.uptimeSeconds), inline: true },
     {
       name: "Daily Commands",

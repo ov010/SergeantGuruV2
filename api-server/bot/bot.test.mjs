@@ -40,6 +40,7 @@ const {
   createBloxlinkLookupEmbed,
   bloxlinkErrorMessage,
   bloxlinkGuildUrl,
+  bloxlinkGlobalUrl,
   isDiscordUserId,
   DAILY_COMMAND_LIMIT,
   consumeDailyCommand,
@@ -644,6 +645,12 @@ test("Bloxlink requests use the guild-scoped endpoint", () => {
   assert.match(url, /\/guilds\/1566264464062414881\//);
 });
 
+test("global Bloxlink requests omit the guild and do not require membership", () => {
+  const url = bloxlinkGlobalUrl("/discord-to-roblox/123456789012345678");
+  assert.equal(url, "https://api.blox.link/v4/public/discord-to-roblox/123456789012345678");
+  assert.doesNotMatch(url, /guilds/);
+});
+
 test("Bloxlink errors explain guild and linkage problems", () => {
   assert.match(
     bloxlinkErrorMessage(401, "Guild ID does not match API Key"),
@@ -656,6 +663,14 @@ test("Bloxlink errors explain guild and linkage problems", () => {
   assert.match(
     bloxlinkErrorMessage(404, "User not found"),
     /no linked account for this user in server \d+/,
+  );
+  assert.match(
+    bloxlinkErrorMessage(404, "User not found", true),
+    /^Bloxlink has no linked account for this user\.$/,
+  );
+  assert.match(
+    bloxlinkErrorMessage(401, "Invalid API Key", true),
+    /BLOXLINK_GLOBAL_API_KEY is not valid/,
   );
   assert.equal(bloxlinkErrorMessage(500, ""), "Bloxlink could not complete the request (HTTP 500).");
 });
