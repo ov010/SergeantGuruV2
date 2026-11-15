@@ -2,8 +2,7 @@
 
 Requires Node.js 22.13+ and pnpm.
 
-1. Install dependencies from the project root. On Windows, run
-   `pnpm.cmd install` in the VS Code terminal; on Linux, run `pnpm install`.
+1. Install dependencies from the project root with `pnpm install`.
    pnpm normally links packages with symlinks, which exFAT and NTFS drives (a USB
    stick, for example) cannot store, so `pnpm-workspace.yaml` sets
    `nodeLinker: hoisted`. If `pnpm install` still reports a `.bin` symlink error
@@ -13,11 +12,9 @@ Requires Node.js 22.13+ and pnpm.
    `ROBLOX_OPEN_CLOUD_API_KEY`. `PORT` defaults to `3000`. The XTracker key is
    optional. Trello boards are read publicly, so no Trello credentials are
    needed. Keep the `.env` file private.
-3. Start it with the launcher for your platform: `Start SergeantGuruV2.bat` on
-   Windows, or `bash "Start SergeantGuruV2.sh"` on Linux. Both check Ollama,
-   build, and run the API server, which supervises the Discord bot. You can also
-   run `pnpm.cmd start` (Windows) or `pnpm start` (Linux), or press **F5** in
-   **Run and Debug**.
+3. Start it with `bash "Start SergeantGuruV2.sh"`. The launcher checks Ollama,
+   builds, and runs the API server, which supervises the Discord bot. You can
+   also run `pnpm start`, or press **F5** in **Run and Debug**.
 4. Ollama is optional. The bot runs without it: grading falls back to the
    deterministic rubric and Alt Risk uses the rule-based score. For local AI
    review, install Ollama and keep it running. The project uses

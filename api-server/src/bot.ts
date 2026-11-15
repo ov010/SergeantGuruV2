@@ -110,6 +110,8 @@ const EMBED_ROLES: Record<string, [string, string]> = {
   "Badge Count": ["embed_color_badge_count", "Yellow"],
   "CBRN Groups": ["embed_color_groups", "Blue"],
   "Records": ["embed_color_records", "Purple"],
+  "Profile": ["embed_color_profile", "Blue"],
+  "Could Not Load Profile": ["embed_color_profile_error", "Orange"],
   "Bot Interaction": ["embed_color_interaction_log", "Blurple"],
   "AI Grading Rule Candidates - Review Before Adding": ["embed_color_grade_suggestions", "Blurple"],
   "Access Denied": ["embed_color_access_denied", "Red"],
@@ -967,6 +969,17 @@ export function createGroupsEmbed(username: string, groups: JsonObject[]): Embed
     .setFooter({ text: footer() });
 }
 
+// /profile is deliberately just the link: no badge counts, groups, or records.
+export function createProfileLinkEmbed(username: string, userId: string): EmbedBuilder {
+  const url = `https://www.roblox.com/users/${userId}/profile`;
+  return new EmbedBuilder()
+    .setTitle(username)
+    .setURL(url)
+    .setDescription(url)
+    .setColor(embedColor("Profile"))
+    .setFooter({ text: footer() });
+}
+
 async function fetchTrelloCards(boardId: string, username: string, signal?: AbortSignal): Promise<JsonObject[]> {
   const cacheKey = `trello:${boardId}:${username.toLowerCase()}`;
   const cached = await getCached<JsonObject[]>(cacheKey, 600);
@@ -1445,6 +1458,7 @@ export const ACCESS_CONTROLLED_COMMANDS: ReadonlySet<string> = new Set([
   "badge",
   "groups",
   "records",
+  "profile",
   "grade",
   "api",
   "info",
@@ -2102,6 +2116,25 @@ async function sendRecords(interaction: ChatInputCommandInteraction, username: s
   }
 }
 
+async function sendProfileLink(interaction: ChatInputCommandInteraction, username: string): Promise<void> {
+  if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
+  if (!validateBadgeRate(interaction.user.id)) {
+    await interaction.reply({ embeds: [makeEmbed("Rate Limit Exceeded", "You've reached the rate limit. Please wait before trying again.", "Warning")] });
+    return;
+  }
+  let normalized: string;
+  try { normalized = validateRobloxUsername(username); }
+  catch (error) { await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] }); return; }
+  await interaction.deferReply();
+  try {
+    const user = await resolveUser(normalized);
+    await interaction.editReply({ embeds: [createProfileLinkEmbed(user.name, user.id)] });
+  } catch (error) {
+    log("Profile link lookup failed", error);
+    await interaction.editReply({ embeds: [makeEmbed("Could Not Load Profile", errorText(error, "Something went wrong while looking up this Roblox profile. Please try again."), "Warning")] });
+  }
+}
+
 function configureCommand<T extends SlashCommandBuilder | SlashCommandOptionsOnlyBuilder | SlashCommandSubcommandsOnlyBuilder>(command: T): T {
   return command
     .setContexts(
@@ -2219,6 +2252,13 @@ export const commands = [
       .setName("username")
       .setDescription("The Roblox username to check")
       .setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("profile")
+    .setDescription("Get a Roblox user's profile link.")
+    .addStringOption((option) => option
+      .setName("username")
+      .setDescription("The Roblox username to link")
+      .setRequired(true)),
   new SlashCommandBuilder().setName("info").setDescription("Show bot statistics, commands, and health."),
   new SlashCommandBuilder()
     .setName("changelog")
@@ -2257,6 +2297,7 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
   if (name === "badge" && interaction.options.getSubcommand() === "count") return sendBadgeCount(interaction, interaction.options.getString("username", true));
   if (name === "groups") return sendGroups(interaction, interaction.options.getString("username", true));
   if (name === "records") return sendRecords(interaction, interaction.options.getString("username", true));
+  if (name === "profile") return sendProfileLink(interaction, interaction.options.getString("username", true));
   if (name === "api") return sendApiStatus(interaction);
   if (name === "changelog") {
     if (!isCommandAuthorized(interaction)) return replyDenied(interaction);

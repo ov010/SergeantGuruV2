@@ -151,7 +151,7 @@ echo "Exit code: $EXIT_CODE"
 echo "========================================"
 echo
 
-# Keep the terminal open when double-clicked, like the Windows "pause".
+# Keep the terminal open after the bot exits, so errors stay readable.
 if [ -t 0 ]; then
     read -r -n 1 -s -p "Press any key to close..."
     echo

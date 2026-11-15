@@ -33,6 +33,7 @@ const {
   createInfoEmbed,
   createGradingFeedbackLogEmbed,
   createGroupsEmbed,
+  createProfileLinkEmbed,
   createRecordsEmbed,
   createInteractionLogEmbed,
   createSearchResultEmbeds,
@@ -59,7 +60,7 @@ test("registers only the retained commands", () => {
   const registered = commands.map((command) => command.toJSON());
   assert.deepEqual(
     registered.map(({ name }) => name),
-    ["background", "badge", "grade", "api", "groups", "records", "info", "changelog", "data", "search", "admin"],
+    ["background", "badge", "grade", "api", "groups", "records", "profile", "info", "changelog", "data", "search", "admin"],
   );
   assert.equal(registered.find(({ name }) => name === "admin").options?.length ?? 0, 0);
   assert.equal(registered.find(({ name }) => name === "badge").options[0].name, "count");
@@ -71,6 +72,17 @@ test("registers only the retained commands", () => {
   assert.match(backgroundOptions.find(({ name }) => name === "username").description, /Roblox username/);
   assert.equal(backgroundOptions.find(({ name }) => name === "discord"), undefined);
   assert.match(registered.find(({ name }) => name === "records").options[0].description, /Roblox username/);
+  const profileOptions = registered.find(({ name }) => name === "profile").options;
+  assert.equal(profileOptions[0].name, "username");
+  assert.equal(profileOptions[0].required, true);
+});
+
+test("/profile returns only the Roblox profile link", () => {
+  const embed = createProfileLinkEmbed("Guru_Guru1X", "123456789").toJSON();
+  assert.equal(embed.title, "Guru_Guru1X");
+  assert.equal(embed.url, "https://www.roblox.com/users/123456789/profile");
+  assert.equal(embed.description, "https://www.roblox.com/users/123456789/profile");
+  assert.equal(embed.fields, undefined, "/profile must not add badges, groups, or records");
 });
 
 test("changelog parses newest-first releases, CRLF bullets, and ignores malformed sections", () => {
@@ -832,16 +844,7 @@ test("local AI calls reject quickly when Ollama is not running", async () => {
   await assert.rejects(assessAltRisk({ signals: { account_age_days: 1 }, ...unreachable }));
 });
 
-test("launcher treats Ollama as optional so the bot always starts", () => {
-  const launcher = readFileSync(new URL("../../Start SergeantGuruV2.bat", import.meta.url), "utf8");
-  assert.match(launcher, /Checking Ollama \(optional\)/);
-  assert.match(launcher, /:OLLAMA_MISSING/);
-  assert.match(launcher, /:OLLAMA_UNAVAILABLE/);
-  assert.match(launcher, /:START_BOT/);
-  assert.match(launcher, /call pnpm\.cmd start/);
-});
-
-test("linux launcher mirrors the Windows launcher", () => {
+test("linux launcher treats Ollama as optional so the bot always starts", () => {
   const launcher = readFileSync(new URL("../../Start SergeantGuruV2.sh", import.meta.url), "utf8");
   assert.match(launcher, /Checking Ollama \(optional\)/);
   assert.match(launcher, /Ollama is not installed/);

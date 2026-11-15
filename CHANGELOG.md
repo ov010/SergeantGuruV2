@@ -1,5 +1,10 @@
 # Change Log
 
+## 2.7.0 - 2026-11-15
+- Added `/profile`, which resolves a Roblox username and returns only that user's profile link.
+- `/profile` requires granted access like the other lookups, uses the same 10-per-minute rate limit, and has its own embed color under `/data` colors.
+- Removed the Windows launcher `Start SergeantGuruV2.bat`; `Start SergeantGuruV2.sh` is now the only launcher and the README is Linux-only.
+
 ## 2.6.0 - 2026-11-15
 - The local grading model default is now `qwen2.5:1.5b`, replacing `qwen2.5:0.5b` in `.env`, the code default, and both launchers.
 - Grading and Alt Risk AI calls now send a JSON schema instead of loose JSON mode, so a small model cannot drift from the expected `reviews`, `suggestions`, or `chance` shape.
