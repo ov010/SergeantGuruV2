@@ -980,6 +980,33 @@ export function createProfileLinkEmbed(username: string, userId: string): EmbedB
     .setFooter({ text: footer() });
 }
 
+// A four-frame waiting spinner: / – \ | then back to /. Discord messages can be
+// edited in place, so repeating edits animate it without sending new messages.
+export const SPINNER_FRAMES = ["/", "–", "\\", "|"] as const;
+
+export function spinnerFrame(index: number): string {
+  const frames = SPINNER_FRAMES.length;
+  return SPINNER_FRAMES[((index % frames) + frames) % frames]!;
+}
+
+export function spinnerContent(index: number, label: string): string {
+  return `${spinnerFrame(index)} ${label}`;
+}
+
+export async function animateSpinner(
+  update: (content: string) => Promise<unknown>,
+  label: string,
+  options: { frames?: number; intervalMs?: number } = {},
+): Promise<number> {
+  const frames = Math.max(1, Math.trunc(options.frames ?? 8));
+  const intervalMs = Math.max(0, Math.trunc(options.intervalMs ?? 800));
+  for (let index = 0; index < frames; index += 1) {
+    await update(spinnerContent(index, label));
+    if (index < frames - 1 && intervalMs > 0) await delay(intervalMs);
+  }
+  return frames;
+}
+
 async function fetchTrelloCards(boardId: string, username: string, signal?: AbortSignal): Promise<JsonObject[]> {
   const cacheKey = `trello:${boardId}:${username.toLowerCase()}`;
   const cached = await getCached<JsonObject[]>(cacheKey, 600);
@@ -1459,6 +1486,7 @@ export const ACCESS_CONTROLLED_COMMANDS: ReadonlySet<string> = new Set([
   "groups",
   "records",
   "profile",
+  "test",
   "grade",
   "api",
   "info",
@@ -2135,6 +2163,19 @@ async function sendProfileLink(interaction: ChatInputCommandInteraction, usernam
   }
 }
 
+async function sendSpinnerTest(interaction: ChatInputCommandInteraction): Promise<void> {
+  if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
+  await interaction.deferReply();
+  const started = Date.now();
+  const frames = await animateSpinner(
+    (content) => interaction.editReply({ content }),
+    "Spinner test running…",
+    { frames: 8, intervalMs: 800 },
+  );
+  const seconds = ((Date.now() - started) / 1000).toFixed(1);
+  await interaction.editReply({ content: `✅ Spinner test complete — ${frames} frames in ${seconds}s.` });
+}
+
 function configureCommand<T extends SlashCommandBuilder | SlashCommandOptionsOnlyBuilder | SlashCommandSubcommandsOnlyBuilder>(command: T): T {
   return command
     .setContexts(
@@ -2271,6 +2312,9 @@ export const commands = [
       .setName("query")
       .setDescription("A Discord or Roblox username, Discord user ID, or interaction ID")
       .setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("test")
+    .setDescription("Run a short spinning animation to check it works."),
   new SlashCommandBuilder().setName("admin").setDescription("Open the bot owner admin panel."),
 ].map(configureCommand);
 
@@ -2298,6 +2342,7 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
   if (name === "groups") return sendGroups(interaction, interaction.options.getString("username", true));
   if (name === "records") return sendRecords(interaction, interaction.options.getString("username", true));
   if (name === "profile") return sendProfileLink(interaction, interaction.options.getString("username", true));
+  if (name === "test") return sendSpinnerTest(interaction);
   if (name === "api") return sendApiStatus(interaction);
   if (name === "changelog") {
     if (!isCommandAuthorized(interaction)) return replyDenied(interaction);

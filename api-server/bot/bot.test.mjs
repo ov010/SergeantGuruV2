@@ -34,6 +34,9 @@ const {
   createGradingFeedbackLogEmbed,
   createGroupsEmbed,
   createProfileLinkEmbed,
+  animateSpinner,
+  spinnerContent,
+  spinnerFrame,
   createRecordsEmbed,
   createInteractionLogEmbed,
   createSearchResultEmbeds,
@@ -60,7 +63,7 @@ test("registers only the retained commands", () => {
   const registered = commands.map((command) => command.toJSON());
   assert.deepEqual(
     registered.map(({ name }) => name),
-    ["background", "badge", "grade", "api", "groups", "records", "profile", "info", "changelog", "data", "search", "admin"],
+    ["background", "badge", "grade", "api", "groups", "records", "profile", "info", "changelog", "data", "search", "test", "admin"],
   );
   assert.equal(registered.find(({ name }) => name === "admin").options?.length ?? 0, 0);
   assert.equal(registered.find(({ name }) => name === "badge").options[0].name, "count");
@@ -83,6 +86,20 @@ test("/profile returns only the Roblox profile link", () => {
   assert.equal(embed.url, "https://www.roblox.com/users/123456789/profile");
   assert.equal(embed.description, "https://www.roblox.com/users/123456789/profile");
   assert.equal(embed.fields, undefined, "/profile must not add badges, groups, or records");
+});
+
+test("spinner cycles / – \\ | and animates by editing one message", async () => {
+  assert.deepEqual([0, 1, 2, 3, 4, 7, -1].map(spinnerFrame), ["/", "–", "\\", "|", "/", "|", "|"]);
+  assert.equal(spinnerContent(2, "Working"), "\\ Working");
+
+  const edits = [];
+  const frames = await animateSpinner(async (content) => { edits.push(content); }, "Working", { frames: 5, intervalMs: 0 });
+  assert.equal(frames, 5);
+  assert.deepEqual(edits, ["/ Working", "– Working", "\\ Working", "| Working", "/ Working"]);
+
+  const single = [];
+  await animateSpinner(async (content) => { single.push(content); }, "Only", { frames: 0, intervalMs: 0 });
+  assert.deepEqual(single, ["/ Only"], "the spinner always shows at least one frame");
 });
 
 test("changelog parses newest-first releases, CRLF bullets, and ignores malformed sections", () => {

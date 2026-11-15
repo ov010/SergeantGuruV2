@@ -1,5 +1,10 @@
 # Change Log
 
+## 2.8.0 - 2026-11-15
+- Added a reusable waiting spinner, `animateSpinner`, which cycles `/ – \ |` by editing one message instead of sending new ones.
+- Added `/test`, which plays the spinner for about six seconds and then reports how many frames it drew, so the animation can be checked in Discord.
+- `/test` requires granted access like the other commands.
+
 ## 2.7.0 - 2026-11-15
 - Added `/profile`, which resolves a Roblox username and returns only that user's profile link.
 - `/profile` requires granted access like the other lookups, uses the same 10-per-minute rate limit, and has its own embed color under `/data` colors.
