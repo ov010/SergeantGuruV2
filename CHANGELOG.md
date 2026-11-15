@@ -1,5 +1,12 @@
 # Change Log
 
+## 2.9.0 - 2026-11-15
+- Replaced Discord's native dotted "bot is thinking" state with the spinner in every waiting command: `/background`, `/badge count`, `/groups`, `/records`, `/profile`, `/search`, `/api`, the grade feedback modal, and the grade report modal.
+- Replies now start immediately with a spinner frame and animate the same message by editing it, so results replace the spinner in place.
+- Sped the animation up from 800 ms to a 600 ms frame interval.
+- `/test` now uses the same spinner path as the real commands and reports the frames it actually drew.
+- Finishing a request always stops the animation first, so a late frame can never overwrite the final embed; an animation that is never stopped releases itself after five minutes.
+
 ## 2.8.0 - 2026-11-15
 - Added a reusable waiting spinner, `animateSpinner`, which cycles `/ – \ |` by editing one message instead of sending new ones.
 - Added `/test`, which plays the spinner for about six seconds and then reports how many frames it drew, so the animation can be checked in Discord.

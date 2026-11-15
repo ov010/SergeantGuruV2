@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 import { ApplicationIntegrationType, EmbedBuilder, InteractionContextType } from "discord.js";
 
@@ -34,7 +35,9 @@ const {
   createGradingFeedbackLogEmbed,
   createGroupsEmbed,
   createProfileLinkEmbed,
-  animateSpinner,
+  startSpinner,
+  SPINNER_INTERVAL_MS,
+  SPINNER_TEST_FRAMES,
   spinnerContent,
   spinnerFrame,
   createRecordsEmbed,
@@ -88,18 +91,65 @@ test("/profile returns only the Roblox profile link", () => {
   assert.equal(embed.fields, undefined, "/profile must not add badges, groups, or records");
 });
 
-test("spinner cycles / – \\ | and animates by editing one message", async () => {
+test("spinner cycles / – \\ | and turns one message into an animation", async () => {
   assert.deepEqual([0, 1, 2, 3, 4, 7, -1].map(spinnerFrame), ["/", "–", "\\", "|", "/", "|", "|"]);
   assert.equal(spinnerContent(2, "Working"), "\\ Working");
+  assert.equal(SPINNER_INTERVAL_MS, 600, "the spinner is faster than the old 800 ms");
+  assert.equal(SPINNER_TEST_FRAMES, 8);
 
+  const replies = [];
   const edits = [];
-  const frames = await animateSpinner(async (content) => { edits.push(content); }, "Working", { frames: 5, intervalMs: 0 });
-  assert.equal(frames, 5);
-  assert.deepEqual(edits, ["/ Working", "– Working", "\\ Working", "| Working", "/ Working"]);
+  const interaction = {
+    reply: async (payload) => { replies.push(payload); },
+    editReply: async (payload) => { edits.push(payload); return { id: "spinner-message" }; },
+  };
 
-  const single = [];
-  await animateSpinner(async (content) => { single.push(content); }, "Only", { frames: 0, intervalMs: 0 });
-  assert.deepEqual(single, ["/ Only"], "the spinner always shows at least one frame");
+  const spinner = await startSpinner(interaction, "Working", { intervalMs: 5 });
+  assert.equal(replies.length, 1, "the first frame replaces Discord's thinking state");
+  assert.equal(replies[0].content, "/ Working");
+  assert.deepEqual(replies[0].allowedMentions, { parse: [] });
+
+  await delay(40);
+  await spinner.stop();
+  assert.ok(edits.length >= 2, "the animation keeps editing while the request runs");
+  assert.deepEqual(
+    edits.map(({ content }) => content),
+    edits.map((_, index) => spinnerContent(index + 1, "Working")),
+  );
+  const drawn = spinner.frameCount();
+  assert.equal(drawn, edits.length + 1, "frameCount includes the first frame");
+
+  await delay(30);
+  assert.equal(spinner.frameCount(), drawn, "stop() ends the animation");
+  assert.equal(edits.length, drawn - 1, "no frame may land after stop()");
+});
+
+test("finish clears the spinner text and ends the animation before the final embed", async () => {
+  const edits = [];
+  const interaction = {
+    reply: async () => undefined,
+    editReply: async (payload) => { edits.push(payload); return { id: "final-message" }; },
+  };
+
+  const spinner = await startSpinner(interaction, "Working", { intervalMs: 5 });
+  await delay(20);
+  const message = await spinner.finish({ embeds: [{ title: "Done" }] });
+  assert.equal(message.id, "final-message");
+  assert.deepEqual(edits.at(-1), { embeds: [{ title: "Done" }], content: "" });
+
+  const count = edits.length;
+  await delay(20);
+  assert.equal(edits.length, count, "finish() must stop the animation");
+
+  // Callers that render their own content (like the grade report) keep it.
+  const otherEdits = [];
+  const other = {
+    reply: async () => undefined,
+    editReply: async (payload) => { otherEdits.push(payload); return { id: "x" }; },
+  };
+  const second = await startSpinner(other, "Test", { intervalMs: 5 });
+  await second.finish({ content: "✅ Spinner test complete" });
+  assert.deepEqual(otherEdits.at(-1), { content: "✅ Spinner test complete" });
 });
 
 test("changelog parses newest-first releases, CRLF bullets, and ignores malformed sections", () => {

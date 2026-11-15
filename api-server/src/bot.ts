@@ -29,7 +29,10 @@ import {
   TextInputStyle,
   type ChatInputCommandInteraction,
   type Interaction,
+  type InteractionEditReplyOptions,
+  type Message,
   type MessageActionRowComponentBuilder,
+  type RepliableInteraction,
   type SlashCommandOptionsOnlyBuilder,
   type SlashCommandSubcommandsOnlyBuilder,
 } from "discord.js";
@@ -983,6 +986,9 @@ export function createProfileLinkEmbed(username: string, userId: string): EmbedB
 // A four-frame waiting spinner: / – \ | then back to /. Discord messages can be
 // edited in place, so repeating edits animate it without sending new messages.
 export const SPINNER_FRAMES = ["/", "–", "\\", "|"] as const;
+// Discord rate limits edits per channel, so 600 ms is about as fast as frames
+// can land without the animation falling behind the request it is covering.
+export const SPINNER_INTERVAL_MS = 600;
 
 export function spinnerFrame(index: number): string {
   const frames = SPINNER_FRAMES.length;
@@ -993,18 +999,62 @@ export function spinnerContent(index: number, label: string): string {
   return `${spinnerFrame(index)} ${label}`;
 }
 
-export async function animateSpinner(
-  update: (content: string) => Promise<unknown>,
+export interface Spinner {
+  /** Frames drawn so far, including the first one. */
+  frameCount: () => number;
+  /** Stops the animation, then replaces the message with the final payload. */
+  finish: (payload?: InteractionEditReplyOptions) => Promise<Message>;
+  /** Stops the animation without editing the message. */
+  stop: () => Promise<void>;
+}
+
+// A spinner that is never stopped (for example, a handler that throws before
+// finishing) still has to release the message, so the animation is capped.
+export const SPINNER_MAX_MS = 5 * 60_000;
+
+// Reply immediately with the spinner instead of deferring: a deferred reply
+// shows Discord's own dotted "bot is thinking" state, and that cannot be themed.
+export async function startSpinner(
+  interaction: RepliableInteraction,
   label: string,
-  options: { frames?: number; intervalMs?: number } = {},
-): Promise<number> {
-  const frames = Math.max(1, Math.trunc(options.frames ?? 8));
-  const intervalMs = Math.max(0, Math.trunc(options.intervalMs ?? 800));
-  for (let index = 0; index < frames; index += 1) {
-    await update(spinnerContent(index, label));
-    if (index < frames - 1 && intervalMs > 0) await delay(intervalMs);
-  }
-  return frames;
+  options: { intervalMs?: number } = {},
+): Promise<Spinner> {
+  const intervalMs = Math.max(1, Math.trunc(options.intervalMs ?? SPINNER_INTERVAL_MS));
+  await interaction.reply({ content: spinnerContent(0, label), allowedMentions: { parse: [] } });
+  let frame = 0;
+  let stopped = false;
+  const pause = new AbortController();
+  let inFlight: Promise<unknown> = Promise.resolve();
+  let safety: ReturnType<typeof setTimeout> | undefined;
+  // Only one edit is ever in flight, so a slow REST queue cannot pile up stale
+  // frames that would land after the final embed.
+  const loop = (async () => {
+    while (!stopped) {
+      try { await delay(intervalMs, undefined, { signal: pause.signal }); }
+      catch { return; }
+      if (stopped) return;
+      frame += 1;
+      inFlight = interaction.editReply({ content: spinnerContent(frame, label) }).catch(() => undefined);
+      await inFlight;
+    }
+  })();
+  const stop = async (): Promise<void> => {
+    stopped = true;
+    if (safety) clearTimeout(safety);
+    pause.abort();
+    await loop.catch(() => undefined);
+    await inFlight.catch(() => undefined);
+  };
+  safety = setTimeout(() => void stop(), SPINNER_MAX_MS);
+  safety.unref?.();
+  const finish = async (payload: InteractionEditReplyOptions = {}): Promise<Message> => {
+    await stop();
+    // Clear the spinner text unless the caller supplies its own content, or the
+    // last frame would stay above the final embed.
+    const body = payload.content === undefined ? { ...payload, content: "" } : payload;
+    return interaction.editReply(body);
+  };
+  return { finish, stop, frameCount: () => frame + 1 };
 }
 
 async function fetchTrelloCards(boardId: string, username: string, signal?: AbortSignal): Promise<JsonObject[]> {
@@ -1993,7 +2043,7 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, req
     await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] });
     return;
   }
-  await interaction.deferReply();
+  const spinner = await startSpinner(interaction, "Running background check…");
   const controller = new AbortController();
   const deadline = Date.now() + BACKGROUND_CHECK_TIMEOUT_MS;
   let deadlineExpired = false;
@@ -2014,7 +2064,7 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, req
     ]);
     if (outcome.kind === "timeout" || Date.now() >= deadline) {
       controller.abort();
-      await interaction.editReply({
+      await spinner.finish({
         embeds: [makeEmbed("Background Check Timed Out", "The background check took too long and was cancelled. Please try again.", "Warning")],
         files: [],
       });
@@ -2026,7 +2076,7 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, req
         .setLabel("Advanced Badge Tracking")
         .setStyle(ButtonStyle.Secondary),
     );
-    const message = await interaction.editReply({
+    const message = await spinner.finish({
       embeds: [outcome.result.embed],
       files: outcome.result.image ? [outcome.result.image] : [],
       components: [advancedButton],
@@ -2041,14 +2091,14 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, req
     });
   } catch (error) {
     if (deadlineExpired) {
-      await interaction.editReply({
+      await spinner.finish({
         embeds: [makeEmbed("Background Check Timed Out", "The background check took too long and was cancelled. Please try again.", "Warning")],
         files: [],
       });
       return;
     }
     log("Background check failed", error);
-    await interaction.editReply({ embeds: [makeEmbed("Could Not Look Up User", errorText(error, "Something went wrong while processing this Roblox user. Please try again."), "Warning")] });
+    await spinner.finish({ embeds: [makeEmbed("Could Not Look Up User", errorText(error, "Something went wrong while processing this Roblox user. Please try again."), "Warning")] });
   } finally {
     clearTimeout(timeout!);
   }
@@ -2067,7 +2117,7 @@ async function sendBadgeCount(interaction: ChatInputCommandInteraction, username
     await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] });
     return;
   }
-  await interaction.deferReply();
+  const spinner = await startSpinner(interaction, "Loading badge count…");
   const controller = new AbortController();
   let deadlineExpired = false;
   let timeout: ReturnType<typeof setTimeout>;
@@ -2084,21 +2134,21 @@ async function sendBadgeCount(interaction: ChatInputCommandInteraction, username
       timedOut,
     ]);
     if (outcome.kind === "timeout") {
-      await interaction.editReply({ embeds: [makeEmbed("Badge Count Timed Out", "The badge count took too long and was cancelled. Please try again.", "Warning")], files: [] });
+      await spinner.finish({ embeds: [makeEmbed("Badge Count Timed Out", "The badge count took too long and was cancelled. Please try again.", "Warning")], files: [] });
       return;
     }
-    await interaction.editReply({
+    await spinner.finish({
       embeds: [outcome.result.embed],
       files: outcome.result.image ? [outcome.result.image] : [],
       components: [],
     });
   } catch (error) {
     if (deadlineExpired) {
-      await interaction.editReply({ embeds: [makeEmbed("Badge Count Timed Out", "The badge count took too long and was cancelled. Please try again.", "Warning")], files: [] });
+      await spinner.finish({ embeds: [makeEmbed("Badge Count Timed Out", "The badge count took too long and was cancelled. Please try again.", "Warning")], files: [] });
       return;
     }
     log("Badge count failed", error);
-    await interaction.editReply({
+    await spinner.finish({
       embeds: [makeEmbed("Could Not Load Badge Count", errorText(error, "Something went wrong while loading badge history. Please try again."), "Warning")],
       components: [],
     });
@@ -2116,13 +2166,13 @@ async function sendGroups(interaction: ChatInputCommandInteraction, username: st
   let normalized: string;
   try { normalized = validateRobloxUsername(username); }
   catch (error) { await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] }); return; }
-  await interaction.deferReply();
+  const spinner = await startSpinner(interaction, "Loading groups…");
   try {
     const user = await resolveUser(normalized);
-    await interaction.editReply({ embeds: [createGroupsEmbed(user.name, await fetchGroups(user.id))] });
+    await spinner.finish({ embeds: [createGroupsEmbed(user.name, await fetchGroups(user.id))] });
   } catch (error) {
     log("Groups lookup failed", error);
-    await interaction.editReply({ embeds: [makeEmbed("Could Not Load Groups", errorText(error, "Something went wrong while loading this user's CBRN groups. Please try again."), "Warning")] });
+    await spinner.finish({ embeds: [makeEmbed("Could Not Load Groups", errorText(error, "Something went wrong while loading this user's CBRN groups. Please try again."), "Warning")] });
   }
 }
 
@@ -2135,12 +2185,12 @@ async function sendRecords(interaction: ChatInputCommandInteraction, username: s
   let normalized: string;
   try { normalized = validateRobloxUsername(username); }
   catch (error) { await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] }); return; }
-  await interaction.deferReply();
+  const spinner = await startSpinner(interaction, "Loading records…");
   try {
-    await interaction.editReply({ embeds: [await recordsReport(normalized)] });
+    await spinner.finish({ embeds: [await recordsReport(normalized)] });
   } catch (error) {
     log("Records lookup failed", error);
-    await interaction.editReply({ embeds: [makeEmbed("Could Not Load Records", errorText(error, "Something went wrong while loading this user's records. Please try again."), "Warning")] });
+    await spinner.finish({ embeds: [makeEmbed("Could Not Load Records", errorText(error, "Something went wrong while loading this user's records. Please try again."), "Warning")] });
   }
 }
 
@@ -2153,27 +2203,27 @@ async function sendProfileLink(interaction: ChatInputCommandInteraction, usernam
   let normalized: string;
   try { normalized = validateRobloxUsername(username); }
   catch (error) { await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] }); return; }
-  await interaction.deferReply();
+  const spinner = await startSpinner(interaction, "Looking up profile…");
   try {
     const user = await resolveUser(normalized);
-    await interaction.editReply({ embeds: [createProfileLinkEmbed(user.name, user.id)] });
+    await spinner.finish({ embeds: [createProfileLinkEmbed(user.name, user.id)] });
   } catch (error) {
     log("Profile link lookup failed", error);
-    await interaction.editReply({ embeds: [makeEmbed("Could Not Load Profile", errorText(error, "Something went wrong while looking up this Roblox profile. Please try again."), "Warning")] });
+    await spinner.finish({ embeds: [makeEmbed("Could Not Load Profile", errorText(error, "Something went wrong while looking up this Roblox profile. Please try again."), "Warning")] });
   }
 }
 
+export const SPINNER_TEST_FRAMES = 8;
+
 async function sendSpinnerTest(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
-  await interaction.deferReply();
   const started = Date.now();
-  const frames = await animateSpinner(
-    (content) => interaction.editReply({ content }),
-    "Spinner test running…",
-    { frames: 8, intervalMs: 800 },
-  );
+  const spinner = await startSpinner(interaction, "Spinner test running…");
+  // Let the background animation draw a full rotation, then stop it and report.
+  await delay(SPINNER_INTERVAL_MS * (SPINNER_TEST_FRAMES - 1));
+  const frames = spinner.frameCount();
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
-  await interaction.editReply({ content: `✅ Spinner test complete — ${frames} frames in ${seconds}s.` });
+  await spinner.finish({ content: `✅ Spinner test complete — ${frames} frames in ${seconds}s.` });
 }
 
 function configureCommand<T extends SlashCommandBuilder | SlashCommandOptionsOnlyBuilder | SlashCommandSubcommandsOnlyBuilder>(command: T): T {
@@ -2412,7 +2462,7 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
       return;
     }
 
-    await interaction.deferReply();
+    const spinner = await startSpinner(interaction, "Searching logs…");
     const terms = new Set<string>([query]);
     const { messages, scanned, complete } = await findInteractionLogs([...terms]);
     const termList = [...terms];
@@ -2420,7 +2470,7 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
       const scope = complete
         ? `No matching log entries were found for **${query}** across ${scanned.toLocaleString("en-US")} scanned log messages.`
         : `No matching log entries were found for **${query}** in the latest ${scanned.toLocaleString("en-US")} log messages (search limit reached).`;
-      await interaction.editReply({
+      await spinner.finish({
         embeds: [makeEmbed("No Interactions Found", scope, "Warning")],
       });
       return;
@@ -2439,7 +2489,7 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
       };
     });
     const pagination = buildPaginationFromPages(createSearchResultEmbeds(query, results, scanned, complete));
-    await interaction.editReply({ embeds: pagination.embeds, components: pagination.components });
+    await spinner.finish({ embeds: pagination.embeds, components: pagination.components });
   }
 }
 
@@ -2657,7 +2707,7 @@ async function checkOllama(): Promise<ApiCheck> {
 
 async function sendApiStatus(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
-  await interaction.deferReply();
+  const spinner = await startSpinner(interaction, "Checking every service…");
 
   const checks = await Promise.all([
     checkDiscordGateway(),
@@ -2681,7 +2731,7 @@ async function sendApiStatus(interaction: ChatInputCommandInteraction): Promise<
   ]);
 
   const pagination = buildPagination(createApiStatusEmbed(checks));
-  await interaction.editReply({ embeds: pagination.embeds, components: pagination.components });
+  await spinner.finish({ embeds: pagination.embeds, components: pagination.components });
 }
 
 export function createApiStatusEmbed(checks: ApiCheck[]): EmbedBuilder {
@@ -3243,7 +3293,7 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply({ embeds: [makeEmbed("Invalid Feedback", `Enter mistake text and a severity of ${allowedSeverities.join(", ")}.`, "Warning")] });
         return;
       }
-      await interaction.deferReply();
+      const spinner = await startSpinner(interaction, "Saving grading feedback…");
       db.prepare(`
         INSERT INTO grade_feedback (normalized_mistake, severity, updated_by)
         VALUES (?, ?, ?)
@@ -3262,7 +3312,7 @@ client.on("interactionCreate", async (interaction) => {
         logSent = false;
         log("Grading feedback could not be sent to the grading feedback channel", error);
       }
-      await interaction.editReply({
+      await spinner.finish({
         embeds: [makeEmbed(
           "Grading Feedback Saved",
           `Future matching feedback will be graded as **${severity}**. ${logSent ? `A sheet-ready copy was posted in <#${GRADING_FEEDBACK_CHANNEL_ID}>.` : "The feedback log could not be posted."}`,
@@ -3311,7 +3361,7 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
-      await interaction.deferReply();
+      const spinner = await startSpinner(interaction, "Grading report…");
 
       let report: string;
       try {
@@ -3320,13 +3370,13 @@ client.on("interactionCreate", async (interaction) => {
           : await gradeReport(standardEventType!, evaluator, trainee, mistakesText);
       } catch (error) {
         log("Grading rules could not be loaded", error);
-        await interaction.editReply({
+        await spinner.finish({
           embeds: [makeEmbed("Grading Rules Unavailable", "The grading rules could not be loaded. Please contact the bot owner.", "Error")],
         });
         return;
       }
       if (report.length > 2000) {
-        await interaction.editReply({ embeds: [makeEmbed("Report Too Long", "This report is too long to send as one message. Shorten the feedback and try again.", "Warning")] });
+        await spinner.finish({ embeds: [makeEmbed("Report Too Long", "This report is too long to send as one message. Shorten the feedback and try again.", "Warning")] });
         return;
       }
 
@@ -3335,7 +3385,7 @@ client.on("interactionCreate", async (interaction) => {
         ? interaction.guild?.roles.cache.find((candidate) => candidate.name.toLowerCase() === "chief training manager")
         : undefined;
       const content = role ? report.replace("@Chief Training Manager", role.toString()) : report;
-      await interaction.editReply({
+      await spinner.finish({
         content,
         components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
           new ButtonBuilder()
