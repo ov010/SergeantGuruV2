@@ -36,7 +36,7 @@ echo Ollama is ready.
 echo.
 echo Loading the local grading model...
 
-curl -s --max-time 60 "%OLLAMA_URL%/api/generate" -d "{\"model\":\"qwen2.5:0.5b\",\"prompt\":\"hello\",\"stream\":false}" >nul 2>&1
+curl -s --max-time 60 "%OLLAMA_URL%/api/generate" -d "{\"model\":\"qwen2.5:1.5b\",\"prompt\":\"hello\",\"stream\":false}" >nul 2>&1
 goto START_BOT
 
 :OLLAMA_MISSING

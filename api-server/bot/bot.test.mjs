@@ -200,11 +200,11 @@ test("/data opens separate views for access, bot/API, and colors", () => {
 
   const bot = createDataEmbed("bot", {
     robloxApiOnline: true,
-    ollama: { name: "Ollama (grading AI)", state: "Online", detail: "qwen2.5:0.5b", latencyMs: 12 },
+    ollama: { name: "Ollama (grading AI)", state: "Online", detail: "qwen2.5:1.5b", latencyMs: 12 },
   }).toJSON();
   const integrations = bot.fields.find(({ name }) => name === "Integrations").value;
   assert.match(integrations, /Roblox Public API: Online/);
-  assert.match(integrations, /Ollama \(grading AI\): Online — qwen2\.5:0\.5b/);
+  assert.match(integrations, /Ollama \(grading AI\): Online — qwen2\.5:1\.5b/);
   const runtime = bot.fields.find(({ name }) => name === "Runtime").value;
   assert.ok(runtime.includes(`Version: ${BOT_VERSION}`), "the Bot & API view must report the running version");
   assert.match(runtime, /Uptime:/);
@@ -276,7 +276,7 @@ test("/info reports live Ollama status alongside the other integrations", () => 
     robloxOnline: true,
     robloxCloud: true,
     xtracker: false,
-    ollama: { name: "Ollama (grading AI)", state: "Online", detail: "qwen2.5:0.5b", latencyMs: 8 },
+    ollama: { name: "Ollama (grading AI)", state: "Online", detail: "qwen2.5:1.5b", latencyMs: 8 },
     dailyUsage: {
       allowed: true,
       used: 7,
@@ -287,7 +287,7 @@ test("/info reports live Ollama status alongside the other integrations", () => 
   }).toJSON();
   const ollama = embed.fields.find(({ name }) => name === "Ollama (grading AI)");
   assert.ok(ollama, "/info must show Ollama status");
-  assert.equal(ollama.value, "Online — qwen2.5:0.5b\n8ms");
+  assert.equal(ollama.value, "Online — qwen2.5:1.5b\n8ms");
   assert.match(embed.fields.find(({ name }) => name === "Daily Commands").value, /^7\/50 used/);
   assert.equal(embed.fields.find(({ name }) => name === "Version").value, BOT_VERSION);
   assert.equal(embed.fields.find(({ name }) => name === "Ping").value, "42ms");
@@ -482,7 +482,7 @@ test("paginates embeds without splitting related blocks", () => {
     robloxOnline: true,
     robloxCloud: true,
     xtracker: false,
-    ollama: { name: "Ollama (grading AI)", state: "Online", detail: "qwen2.5:0.5b", latencyMs: 8 },
+    ollama: { name: "Ollama (grading AI)", state: "Online", detail: "qwen2.5:1.5b", latencyMs: 8 },
     dailyUsage: null,
   });
   const original = info().toJSON();
@@ -797,7 +797,7 @@ test("api status embed reports every integration state", () => {
   const embed = createApiStatusEmbed([
     { name: "Discord Gateway", state: "Online", detail: "42ms ping" },
     { name: "Google Sheets Rubric", state: "Online", detail: "432 rules", latencyMs: 88 },
-    { name: "Ollama (grading AI)", state: "Degraded", detail: "qwen2.5:0.5b is not pulled", latencyMs: 12 },
+    { name: "Ollama (grading AI)", state: "Degraded", detail: "qwen2.5:1.5b is not pulled", latencyMs: 12 },
   ]).toJSON();
   assert.match(embed.description, /2\/3.*online/);
   assert.deepEqual(embed.fields.map(({ name }) => name), [
@@ -815,14 +815,14 @@ test("grading AI refuses non-local model endpoints", async () => {
       mistakes: ["Did not secure the lobby"],
       knownRules: [],
       baseUrl: "https://example.com",
-      model: "qwen2.5:0.5b",
+      model: "qwen2.5:1.5b",
     }),
     /must use a local Ollama address/,
   );
 });
 
 test("local AI calls reject quickly when Ollama is not running", async () => {
-  const unreachable = { baseUrl: "http://127.0.0.1:1", model: "qwen2.5:0.5b" };
+  const unreachable = { baseUrl: "http://127.0.0.1:1", model: "qwen2.5:1.5b" };
   await assert.rejects(suggestNewGradeMistakes({
     eventType: "Guarding Evaluation",
     mistakes: ["Did not secure the lobby"],
@@ -839,6 +839,15 @@ test("launcher treats Ollama as optional so the bot always starts", () => {
   assert.match(launcher, /:OLLAMA_UNAVAILABLE/);
   assert.match(launcher, /:START_BOT/);
   assert.match(launcher, /call pnpm\.cmd start/);
+});
+
+test("linux launcher mirrors the Windows launcher", () => {
+  const launcher = readFileSync(new URL("../../Start SergeantGuruV2.sh", import.meta.url), "utf8");
+  assert.match(launcher, /Checking Ollama \(optional\)/);
+  assert.match(launcher, /Ollama is not installed/);
+  assert.match(launcher, /Ollama did not respond in time/);
+  assert.match(launcher, /pnpm start/);
+  assert.match(launcher, /read -r -n 1 -s -p/);
 });
 
 test("clamps and validates local alt-risk AI assessments", () => {
@@ -915,7 +924,7 @@ test("alt-risk AI refuses non-local model endpoints", async () => {
     assessAltRisk({
       signals: { account_age_days: 1 },
       baseUrl: "https://example.com",
-      model: "qwen2.5:0.5b",
+      model: "qwen2.5:1.5b",
     }),
     /must use a local Ollama address/,
   );

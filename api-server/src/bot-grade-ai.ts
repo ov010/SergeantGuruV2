@@ -22,6 +22,60 @@ const allowedSeverities: Record<string, ReadonlySet<GradeSeverity>> = {
   "Hosting Evaluation": new Set(["MINOR", "MODERATE", "AUTO_FAIL"]),
 };
 
+// Schema-constrained decoding keeps a small local model on the exact response
+// shape the parsers below expect. Loose JSON mode lets it drift into prose, echo
+// the prompt, or turn the example values into the answer. Pinning the array
+// length also stops it from silently dropping submissions it was asked to review.
+function gradeReviewSchema(count: number): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: {
+      reviews: {
+        type: "array",
+        minItems: count,
+        maxItems: count,
+        items: {
+          type: "object",
+          properties: {
+            index: { type: "integer" },
+            candidate: { type: "integer" },
+            corrected: { type: "string" },
+          },
+          required: ["index", "candidate", "corrected"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["reviews"],
+    additionalProperties: false,
+  };
+}
+
+function gradeSuggestionSchema(eventType: string): Record<string, unknown> {
+  const severities = allowedSeverities[eventType];
+  return {
+    type: "object",
+    properties: {
+      suggestions: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            source_index: { type: "integer" },
+            mistake: { type: "string" },
+            severity: severities ? { type: "string", enum: [...severities] } : { type: "string" },
+            reason: { type: "string" },
+          },
+          required: ["source_index", "mistake", "severity", "reason"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["suggestions"],
+    additionalProperties: false,
+  };
+}
+
 export function parseGradeMistakeSuggestions(
   response: unknown,
   mistakes: string[],
@@ -245,7 +299,7 @@ export async function reviewGradeSubmission({
     body: JSON.stringify({
       model,
       stream: false,
-      format: "json",
+      format: gradeReviewSchema(items.length),
       think: false,
       keep_alive: "5m",
       options: { temperature: 0, num_predict: 1200 },
@@ -296,7 +350,7 @@ export async function suggestNewGradeMistakes({
     body: JSON.stringify({
       model,
       stream: false,
-      format: "json",
+      format: gradeSuggestionSchema(eventType),
       think: false,
       keep_alive: "5m",
       options: { temperature: 0, num_predict: 400 },

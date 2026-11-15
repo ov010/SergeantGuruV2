@@ -6,6 +6,18 @@ export interface AltAssessment {
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const REQUEST_TIMEOUT_MS = 15_000;
 
+// Schema-constrained decoding stops a small model from answering in prose or
+// echoing the prompt instead of returning the chance/reason object.
+const altAssessmentSchema = {
+  type: "object",
+  properties: {
+    chance: { type: "integer", minimum: 0, maximum: 100 },
+    reason: { type: "string" },
+  },
+  required: ["chance", "reason"],
+  additionalProperties: false,
+} as const;
+
 function cleanText(value: unknown, maxLength: number): string {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, maxLength) : "";
 }
@@ -56,14 +68,14 @@ export async function assessAltRisk({
     body: JSON.stringify({
       model,
       stream: false,
-      format: "json",
+      format: altAssessmentSchema,
       think: false,
       keep_alive: "5m",
       options: { temperature: 0, num_predict: 200 },
       messages: [
         {
           role: "system",
-          content: "You estimate how likely a Roblox account is an alternate account (alt). Use only the supplied signals and do not invent data. Return JSON only: {\"chance\":0,\"reason\":\"one short sentence\"}. chance is an integer from 0 to 100. Raise it for very new accounts, few badges, few friends/followers/following, many past usernames, blacklist or secret-service records, little group history, few avatar items, few inventory items or game passes, no created or favourite games, and private inventory. Lower it for old accounts with many badges, friends, followers, groups, avatar items, inventory items, game passes, created games and favourite games, and clean records.",
+          content: "You estimate how likely a Roblox account is an alternate account (alt). Use only the supplied signals and do not invent data. Return JSON only: {\"chance\":0,\"reason\":\"...\"}. chance is an integer from 0 to 100. Write reason as a specific observation that cites concrete values from the signals; never restate these instructions. Raise it for very new accounts, few badges, few friends/followers/following, many past usernames, blacklist or secret-service records, little group history, few avatar items, few inventory items or game passes, no created or favourite games, and private inventory. Lower it for old accounts with many badges, friends, followers, groups, avatar items, inventory items, game passes, created games and favourite games, and clean records.",
         },
         {
           role: "user",

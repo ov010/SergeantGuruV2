@@ -85,7 +85,7 @@ if (!token) throw new Error("DISCORD_BOT_TOKEN is required.");
 if (!robloxApiKey) throw new Error("ROBLOX_OPEN_CLOUD_API_KEY is required.");
 const xtrackerApiKey = process.env["XTRACKER_API_KEY"]?.trim() ?? "";
 const gradingAiBaseUrl = process.env["OLLAMA_BASE_URL"]?.trim() || "http://127.0.0.1:11434";
-const gradingAiModel = process.env["OLLAMA_MODEL"]?.trim() || "qwen2.5:0.5b";
+const gradingAiModel = process.env["OLLAMA_MODEL"]?.trim() || "qwen2.5:1.5b";
 
 const BACKGROUND_CHECK_LOG_GUILD_ID = "1566264464062414881";
 const BACKGROUND_CHECK_LOG_CHANNEL_ID = "1566264530361655387";
@@ -3284,7 +3284,7 @@ client.on("interactionCreate", async (interaction) => {
   });
 });
 
-client.once("ready", async () => {
+client.once("clientReady", async () => {
   if (!client.user) return;
   log(`Connected to Discord as ${client.user.tag} (SergeantGuruV2 v${BOT_VERSION})`);
   startRotatingPresence();

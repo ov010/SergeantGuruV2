@@ -10,3 +10,10 @@ autoInstallPeers: false
 
 allowBuilds:
   esbuild: true
+
+# exFAT/NTFS cannot store symlinks, so copy packages into node_modules instead.
+nodeLinker: hoisted
+
+# pnpm's pre-run install check cannot create .bin symlinks on exFAT/NTFS drives,
+# so installs are run manually and every start would otherwise print an error.
+verifyDepsBeforeRun: false

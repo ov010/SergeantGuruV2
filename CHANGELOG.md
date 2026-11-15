@@ -1,5 +1,15 @@
 # Change Log
 
+## 2.6.0 - 2026-11-15
+- The local grading model default is now `qwen2.5:1.5b`, replacing `qwen2.5:0.5b` in `.env`, the code default, and both launchers.
+- Grading and Alt Risk AI calls now send a JSON schema instead of loose JSON mode, so a small model cannot drift from the expected `reviews`, `suggestions`, or `chance` shape.
+- Added a Linux launcher, `Start SergeantGuruV2.sh`, that mirrors the Windows `.bat`: it checks Node.js and pnpm, starts Ollama when it is installed but stopped, warms the model, and runs `pnpm start`.
+- Set `nodeLinker: hoisted` in `pnpm-workspace.yaml` so the workspace installs on filesystems that cannot store symlinks, such as exFAT or NTFS USB drives.
+- Disabled pnpm's pre-run install check on such drives, so starting the bot no longer prints a `.bin` symlink error before every launch.
+- The Linux launcher no longer reports missing dependencies when pnpm has installed them into the workspace root.
+- Bot startup now waits for discord.js's `clientReady` event, removing the deprecation warning on every launch.
+- The README now documents Linux setup and warns that thinking models such as `qwen3:4b` use the whole response budget on reasoning and return no usable JSON.
+
 ## 2.5.0 - 2026-11-14
 - Removed the Bloxlink integration, including `/roblox`, the `/background check` Discord Query option, and the `BLOXLINK_*` environment variables.
 - `/background check`, `/records`, and the other lookups now accept Roblox usernames only.

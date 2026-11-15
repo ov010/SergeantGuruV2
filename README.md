@@ -2,19 +2,30 @@
 
 Requires Node.js 22.13+ and pnpm.
 
-1. In PowerShell, run `pnpm.cmd install` in the VS Code terminal.
+1. Install dependencies from the project root. On Windows, run
+   `pnpm.cmd install` in the VS Code terminal; on Linux, run `pnpm install`.
+   pnpm normally links packages with symlinks, which exFAT and NTFS drives (a USB
+   stick, for example) cannot store, so `pnpm-workspace.yaml` sets
+   `nodeLinker: hoisted`. If `pnpm install` still reports a `.bin` symlink error
+   on such a drive, the packages are installed and only the shims failed; an
+   ext4 folder avoids the message entirely.
 2. Open the `.env` file in the project root and fill in `DISCORD_BOT_TOKEN` and
    `ROBLOX_OPEN_CLOUD_API_KEY`. `PORT` defaults to `3000`. The XTracker key is
    optional. Trello boards are read publicly, so no Trello credentials are
    needed. Keep the `.env` file private.
-3. From the project root, run `pnpm.cmd start` in the terminal, or press **F5**
-   in **Run and Debug**. Both build and start the API server; it supervises the
-   Discord bot.
+3. Start it with the launcher for your platform: `Start SergeantGuruV2.bat` on
+   Windows, or `bash "Start SergeantGuruV2.sh"` on Linux. Both check Ollama,
+   build, and run the API server, which supervises the Discord bot. You can also
+   run `pnpm.cmd start` (Windows) or `pnpm start` (Linux), or press **F5** in
+   **Run and Debug**.
 4. Ollama is optional. The bot runs without it: grading falls back to the
    deterministic rubric and Alt Risk uses the rule-based score. For local AI
    review, install Ollama and keep it running. The project uses
-   `OLLAMA_MODEL` from `.env` (currently `qwen2.5:0.5b`); pull it with
-   `ollama pull qwen2.5:0.5b`, or point `OLLAMA_MODEL` at any other pulled model.
+   `OLLAMA_MODEL` from `.env` (currently `qwen2.5:1.5b`); pull it with
+   `ollama pull qwen2.5:1.5b`, or point `OLLAMA_MODEL` at any other pulled model.
+   Use a non-thinking instruct model: reasoning models such as `qwen3:4b` spend
+   their whole response budget thinking and return no usable JSON for `/grade`
+   and Alt Risk.
    In `/grade`, Ollama compares the submitted mistakes with the Google Sheet
    rubric, fills in matches the deterministic matcher misses, and fixes grammar.
    Every AI rubric match is verified against the sheet, saved feedback overrides
