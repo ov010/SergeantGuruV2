@@ -1,5 +1,10 @@
 # Change Log
 
+## 2.9.1 - 2026-11-19
+- `/background check` no longer drops the badge chart silently: when badge history cannot be loaded or drawn, the embed now states the reason.
+- A rejected Roblox Open Cloud key now reports that the key may be inactive, expired, or missing this machine's IP address from its allowed IPs, instead of only telling the owner to replace the secret.
+- `/changelog` keeps every release now that the change log exceeds Discord's 25-field embed limit: the oldest releases are packed together instead of failing to build the embed.
+
 ## 2.9.0 - 2026-11-15
 - Replaced Discord's native dotted "bot is thinking" state with the spinner in every waiting command: `/background`, `/badge count`, `/groups`, `/records`, `/profile`, `/search`, `/api`, the grade feedback modal, and the grade report modal.
 - Replies now start immediately with a spinner frame and animate the same message by editing it, so results replace the spinner in place.

@@ -1201,7 +1201,7 @@ async function fetchBadges(userId: string, signal?: AbortSignal): Promise<JsonOb
       headers: { "x-api-key": robloxApiKey! },
       signal,
     }, true);
-    if (response.status === 401) throw new BotError("The Roblox API key was rejected. The bot owner needs to update its secret.");
+    if (response.status === 401) throw new BotError("The Roblox API key was rejected. Check that the key is active, has not expired, and allows this machine's IP address.");
     if (response.status === 403) throw new PrivateInventoryError("This Roblox user's badge inventory is private or unavailable to the API key.");
     if (!response.ok) throw new BotError("Roblox could not load this user's badge history. Please try again later.");
     const payload = await response.json() as JsonObject;
@@ -1335,9 +1335,10 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
   let image: Buffer | undefined;
   let inventoryPrivate = false;
   let badgeDataAvailable = false;
+  let badgeChartError: string | undefined;
   try {
     const response = await requestJson(`${ROBLOX_CLOUD}/users/${user.id}/inventory-items?filter=badges%3Dtrue&maxPageSize=1`, { headers: { "x-api-key": robloxApiKey! }, signal }, true);
-    if (response.status === 401) throw new BotError("The Roblox API key was rejected. The bot owner needs to update its secret.");
+    if (response.status === 401) throw new BotError("The Roblox API key was rejected. Check that the key is active, has not expired, and allows this machine's IP address.");
     if (response.status === 403) throw new PrivateInventoryError("Private inventory.");
     if (!response.ok) throw new BotError("Roblox could not check this user's badge inventory.");
     badges = await fetchBadges(user.id, signal);
@@ -1356,7 +1357,10 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
   } catch (error) {
     if (signal.aborted) throw error;
     if (error instanceof PrivateInventoryError) inventoryPrivate = true;
-    else log("Badge chart is unavailable", error);
+    else {
+      badgeChartError = errorText(error, "The badge chart could not be generated.");
+      log("Badge chart is unavailable", error);
+    }
   }
   const created = detailsCreated(details);
   const divisionRanks = groups.flatMap((data) => GROUP_IDS.has(Number(data.group?.id))
@@ -1433,12 +1437,14 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
         `• Busiest day ${discordTimestamp(badgeSummary.busiestDay)} · ${badgeSummary.busiestDayCount} badges`,
         `• Longest quiet stretch **${badgeSummary.longestQuietMonths} months** · Months with no badges **${badgeSummary.monthsWithoutBadgesPercent}%**`,
       ].join("\n")
-    : inventoryPrivate ? "Badge inventory is private or unavailable to the API key." : "No badge history is available.";
+    : inventoryPrivate ? "Badge inventory is private or unavailable to the API key."
+      : badgeChartError ? `Badge chart unavailable: ${badgeChartError}` : "No badge history is available.";
   const embed = new EmbedBuilder()
     .setTitle(user.name)
     .setURL(`https://www.roblox.com/users/${user.id}/profile`)
     .setColor(embedColor("Background Check"));
   if (inventoryPrivate) embed.setDescription("Badge inventory is set to private. Cannot draw badge history.");
+  else if (!image && badgeChartError) embed.setDescription(`Badge chart unavailable: ${badgeChartError}`);
   embed.addFields(
     { name: "Past Usernames", value: history.length ? history.map((name) => `• ${name}`).join("\n").slice(0, 1024) : NONE, inline: false },
     { name: "Account Created", value: created ? `${discordTimestamp(created)} (${discordTimestamp(created, "R")})` : "Unknown", inline: true },
@@ -2270,8 +2276,53 @@ export function createChangelogEmbed(markdown: string): EmbedBuilder {
   // One field per release lets pagination split releases across pages instead
   // of truncating the whole change log to a single description.
   const embed = makeEmbed("Change Log", "Every release, newest first.", "Info");
-  embed.addFields(entries.flatMap(changelogEntryFields));
+  embed.addFields(changelogFields(entries));
   return embed;
+}
+
+const CHANGELOG_FIELD_LIMIT = 25;
+
+function changelogFields(entries: ChangelogEntry[]): Array<{ name: string; value: string; inline: boolean }> {
+  const fields = entries.flatMap(changelogEntryFields);
+  if (fields.length <= CHANGELOG_FIELD_LIMIT) return fields;
+  // An embed holds 25 fields. Once the change log outgrows that, keep the
+  // newest releases as their own fields and pack the oldest releases together,
+  // headings included, so no release is lost.
+  for (let keep = entries.length - 1; keep >= 0; keep -= 1) {
+    const head = entries.slice(0, keep).flatMap(changelogEntryFields);
+    const slots = CHANGELOG_FIELD_LIMIT - head.length;
+    if (slots < 1) continue;
+    const tail = packChangelogReleases(entries.slice(keep), slots);
+    if (tail) return [...head, ...tail];
+  }
+  return fields.slice(0, CHANGELOG_FIELD_LIMIT);
+}
+
+function packChangelogReleases(
+  entries: ChangelogEntry[],
+  slots: number,
+): Array<{ name: string; value: string; inline: boolean }> | undefined {
+  const packed: Array<{ name: string; value: string; inline: boolean }> = [];
+  let current: { name: string; lines: string[]; length: number } | undefined;
+  const flush = (): void => {
+    if (!current) return;
+    packed.push({ name: current.name.slice(0, 256), value: current.lines.join("\n"), inline: false });
+    current = undefined;
+  };
+  for (const entry of entries) {
+    const lines = [
+      `**${entry.version} - ${entry.date}**`,
+      ...(entry.descriptions.length ? entry.descriptions.map((description) => `- ${description}`) : ["- No changes recorded."]),
+    ];
+    for (const value of chunkText(lines.join("\n"), 1024)) {
+      if (current && current.length + value.length + 1 > 1024) flush();
+      current ??= { name: `${entry.version} - ${entry.date} (older releases)`, lines: [], length: 0 };
+      current.lines.push(value);
+      current.length += value.length + 1;
+    }
+  }
+  flush();
+  return packed.length <= slots ? packed : undefined;
 }
 
 function chunkText(text: string, limit: number): string[] {
