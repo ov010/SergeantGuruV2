@@ -1,5 +1,10 @@
 # Change Log
 
+## 3.3.0 - 2026-11-22
+- `/admin` gained **Change bot status**, offering Online, Idle, Do Not Disturb and Invisible. The choice is saved and reapplied on startup and on every presence rotation.
+- The optional Alt Risk model now receives the rule-based score and explains the strongest risk and mitigating signals in 2-4 sentences, with room for up to 500 characters.
+- `/background check` ends with a small `-#` note that new public databases may be added in future updates.
+
 ## 3.2.2 - 2026-11-22
 - The admin panel's authorized-user view now shows the user as a `<@ID>` mention and allows that mention, so viewing them pings the account instead of printing a plain username.
 

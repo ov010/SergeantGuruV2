@@ -25,7 +25,8 @@ Requires Node.js 22.13+ and pnpm.
    instruct model: reasoning models such as `qwen3:4b` spend their whole
    response budget thinking and return no usable JSON.
    In `/background check`, Ollama contributes a second opinion to the Alt Risk
-   score, which is based on every available signal: account age, badges,
+   score and explains the strongest risk and mitigating signals in a short
+   analysis, which is based on every available signal: account age, badges,
    friends, followers, following, past usernames, groups and division ranks,
    avatar items, inventory items, game passes, created games, favourite games
    and record checks. The bot uses `127.0.0.1:11434` by default;
@@ -60,8 +61,10 @@ the application's **Installation** settings in the Discord Developer Portal.
 `/api` runs live reachability checks for Discord, Roblox, XTracker, and Roblox
 Watcher. Each authorized user can run 10 access-controlled commands per UTC
 day; the owner is exempt and `/info` shows what is left. The owner can use
-`/admin` to open the access and color settings panel; its second dropdown shows
-each authorized user's profile picture, Discord ID, who granted access, and when.
+`/admin` to open the access, bot status and color settings panel; its second
+dropdown shows each authorized user's profile picture, Discord ID, who granted
+access, and when. The bot status can be set to Online, Idle, Do Not Disturb or
+Invisible and is saved across restarts.
 Authorization, daily usage, and settings remain in
 `api-server/bot/data/authorizations.sqlite3`.
 

@@ -25,6 +25,7 @@ const {
   COLOR_TARGET_PAGE_SIZE,
   createAdminModal,
   createAdminPanelMenu,
+  createStatusMenu,
   createAuthorizedUsersMenu,
   createCooldownEmbed,
   sendAdminPanel,
@@ -204,6 +205,13 @@ test("admin menus describe every option", () => {
     assert.ok(options.every((option) => option.label?.trim()), "every menu option needs a label");
     assert.ok(options.every((option) => !option.description || option.description.length <= 100));
   }
+});
+
+test("the admin panel can change the bot status", () => {
+  const menu = createStatusMenu().toJSON().components[0];
+  assert.equal(menu.custom_id, "admin-status");
+  assert.deepEqual(menu.options.map(({ value }) => value), ["online", "idle", "dnd", "invisible"]);
+  assert.ok(createAdminPanelMenu().toJSON().components[0].options.some(({ value }) => value === "status"));
 });
 
 test("/admin is limited to the bot owner", async () => {

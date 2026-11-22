@@ -96,6 +96,15 @@ const CHART_COLORS: Record<string, [string, string]> = {
 const DEFAULT_CHART_COLOR = "Yellow";
 const DEFAULT_PRESENCE = "SergeantGuruV2 | Use /background check";
 const PRESENCE_ROTATION_INTERVAL_MS = 30_000;
+const PRESENCE_STATUSES = ["online", "idle", "dnd", "invisible"] as const;
+type PresenceStatus = (typeof PRESENCE_STATUSES)[number];
+const PRESENCE_STATUS_LABELS: Record<PresenceStatus, string> = {
+  online: "Online",
+  idle: "Idle",
+  dnd: "Do Not Disturb",
+  invisible: "Invisible",
+};
+const DEFAULT_PRESENCE_STATUS: PresenceStatus = "online";
 const EMBED_ROLES: Record<string, [string, string]> = {
   "Background Check": ["embed_color_background_check", "Blurple"],
   "Badge Count": ["embed_color_badge_count", "Yellow"],
@@ -123,6 +132,8 @@ const EMBED_ROLES: Record<string, [string, string]> = {
   "Change Log": ["embed_color_changelog", "Blue"],
   "Change Log Unavailable": ["embed_color_changelog_error", "Orange"],
   "API Status": ["embed_color_api_status", "Blue"],
+  "Bot Status": ["embed_color_bot_status", "Teal"],
+  "Bot Status Updated": ["embed_color_bot_status_result", "Green"],
   "Invalid Search Query": ["embed_color_search_invalid", "Orange"],
   "No Interactions Found": ["embed_color_search_empty", "Orange"],
   "Interaction Search Results": ["embed_color_search_results", "Green"],
@@ -557,8 +568,21 @@ export function createAdminPanelMenu(): ActionRowBuilder<StringSelectMenuBuilder
       { label: "Deauthorize user", value: "deauthorize-user", description: "Remove access from one Discord user." },
       { label: "Deauthorize role", value: "deauthorize-role", description: "Remove access from a role." },
       { label: "Change colors", value: "customize", description: "Change embed and chart colors." },
+      { label: "Change bot status", value: "status", description: "Set Online, Idle, Do Not Disturb, or Invisible." },
       { label: "Change rotating presence", value: "presence", description: "Edit the bot's rotating status messages." },
     );
+  return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
+}
+
+export function createStatusMenu(): ActionRowBuilder<StringSelectMenuBuilder> {
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId("admin-status")
+    .setPlaceholder("Choose the bot's status")
+    .addOptions(PRESENCE_STATUSES.map((status) => ({
+      label: PRESENCE_STATUS_LABELS[status],
+      value: status,
+      default: status === getPresenceStatus(),
+    })));
   return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
 }
 
@@ -606,6 +630,11 @@ function getPresenceActivities(): string[] {
     .filter(Boolean);
 }
 
+function getPresenceStatus(): PresenceStatus {
+  const value = getSetting("bot_status", DEFAULT_PRESENCE_STATUS);
+  return (PRESENCE_STATUSES as readonly string[]).includes(value) ? value as PresenceStatus : DEFAULT_PRESENCE_STATUS;
+}
+
 function validatePresenceActivities(value: string): string[] {
   const activities = value.split(/\r?\n/).map((activity) => activity.trim()).filter(Boolean);
   if (!activities.length) throw new BotError("Enter at least one presence activity.");
@@ -623,7 +652,10 @@ function applyRotatingPresence(): void {
   if (!client.user) return;
   const activities = getPresenceActivities();
   if (!activities.length) throw new Error("At least one presence activity must be configured.");
-  client.user.setActivity(activities[presenceIndex % activities.length]!, { type: ActivityType.Playing });
+  client.user.setPresence({
+    activities: [{ name: activities[presenceIndex % activities.length]!, type: ActivityType.Playing }],
+    status: getPresenceStatus(),
+  });
   presenceIndex = (presenceIndex + 1) % activities.length;
 }
 
@@ -1567,6 +1599,7 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
       model: altAiModel,
       signal,
       signals: {
+        baseline_score: ruleRisk,
         account_age_days: created ? Math.max(0, Math.round((Date.now() - created.getTime()) / 86_400_000)) : null,
         badge_count: badgeDataAvailable ? badges.length : null,
         friends: friends.friends,
@@ -1685,7 +1718,7 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
     const pageEmbed = new EmbedBuilder()
       .setTitle(index === 0 ? user.name : `${user.name} (continued)`)
       .setURL(`https://www.roblox.com/users/${user.id}/profile`)
-      .setDescription(`${SECTION_DIVIDER}\n${description}`)
+      .setDescription(`${SECTION_DIVIDER}\n${description}${index === pages.length - 1 ? "\n\n-# New public databases may be added in future updates." : ""}`)
       .setColor(embedColor("Background Check"))
       .setFooter({ text: footer() });
     if (index === 0 && avatar) pageEmbed.setThumbnail(avatar.url);
@@ -2023,6 +2056,7 @@ function isAdminInteraction(interaction: Interaction): boolean {
   if (interaction.isStringSelectMenu()) {
     return interaction.customId === "admin-panel"
       || interaction.customId === "admin-authorized-user"
+      || interaction.customId === "admin-status"
       || interaction.customId.startsWith("admin-color-target")
       || interaction.customId.startsWith("admin-color-value:");
   }
@@ -2048,6 +2082,7 @@ async function logInteractionAttempt(interaction: Interaction): Promise<void> {
     action = `select:${interaction.customId}${interaction.values.length ? `:${interaction.values.join(",")}` : ""}`;
     if (interaction.customId === "admin-panel") access = isOwner(interaction.user.id) ? "allowed" : "denied";
     else if (interaction.customId === "admin-authorized-user") access = isOwner(interaction.user.id) ? "allowed" : "denied";
+    else if (interaction.customId === "admin-status") access = isOwner(interaction.user.id) ? "allowed" : "denied";
     else if (interaction.customId.startsWith("admin-color-target") || interaction.customId.startsWith("admin-color-value:")) {
       access = isOwner(interaction.user.id) ? "allowed" : "denied";
     }
@@ -2912,10 +2947,16 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
       const action = interaction.values[0];
-      if (!action || !["authorize-user", "authorize-role", "deauthorize-user", "deauthorize-role", "customize", "presence"].includes(action)) {
+      if (!action || !["authorize-user", "authorize-role", "deauthorize-user", "deauthorize-role", "customize", "status", "presence"].includes(action)) {
         throw new BotError("Choose a valid admin action.");
       }
-      if (action === "customize") {
+      if (action === "status") {
+        recordAdminChange(interaction, "No settings changed; opened the bot status selector.");
+        await interaction.reply({
+          embeds: [makeEmbed("Bot Status", "Choose the status the bot should show in Discord. Invisible keeps it connected but hides it from member lists.", "Info")],
+          components: [createStatusMenu()],
+        });
+      } else if (action === "customize") {
         recordAdminChange(interaction, "No settings changed; opened the color target selector.");
         await interaction.reply({
           embeds: [makeEmbed("Change Embed Colors", "Choose the embed to recolor. Its current color is shown in the menu.", "Info")],
@@ -2925,6 +2966,27 @@ client.on("interactionCreate", async (interaction) => {
         recordAdminChange(interaction, `No settings changed; opened ${action}.`);
         await interaction.showModal(createAdminModal(action));
       }
+    } else if (interaction.isStringSelectMenu() && interaction.customId === "admin-status") {
+      if (!isOwner(interaction.user.id)) {
+        await interaction.reply({ embeds: [deniedEmbed()] });
+        return;
+      }
+      const status = interaction.values[0];
+      if (!status || !(PRESENCE_STATUSES as readonly string[]).includes(status)) throw new BotError("Choose a valid bot status.");
+      const nextStatus = status as PresenceStatus;
+      const previousStatus = getPresenceStatus();
+      setSetting("bot_status", nextStatus);
+      applyRotatingPresence();
+      recordAdminChange(
+        interaction,
+        previousStatus === nextStatus
+          ? `No status change; the bot is already ${PRESENCE_STATUS_LABELS[nextStatus]}.`
+          : `Bot status changed from ${PRESENCE_STATUS_LABELS[previousStatus]} to ${PRESENCE_STATUS_LABELS[nextStatus]}.`,
+      );
+      await interaction.update({
+        embeds: [makeEmbed("Bot Status Updated", `The bot is now **${PRESENCE_STATUS_LABELS[nextStatus]}**.`, "Success")],
+        components: [],
+      });
     } else if (interaction.isStringSelectMenu() && interaction.customId.startsWith("admin-color-target")) {
       if (!isOwner(interaction.user.id)) {
         await interaction.reply({ embeds: [deniedEmbed()] });

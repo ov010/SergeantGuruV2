@@ -41,7 +41,7 @@ export function parseAltAssessment(response: unknown): AltAssessment {
   }
   return {
     chance: Math.round(Math.min(100, Math.max(0, chance))),
-    reason: cleanText(record.reason, 240),
+    reason: cleanText(record.reason, 500),
   };
 }
 
@@ -71,11 +71,11 @@ export async function assessAltRisk({
       format: altAssessmentSchema,
       think: false,
       keep_alive: "5m",
-      options: { temperature: 0, num_predict: 200 },
+      options: { temperature: 0, num_predict: 500 },
       messages: [
         {
           role: "system",
-          content: "You estimate how likely a Roblox account is an alternate account (alt). Use only the supplied signals and do not invent data. Return JSON only: {\"chance\":0,\"reason\":\"...\"}. chance is an integer from 0 to 100. Write reason as a specific observation that cites concrete values from the signals; never restate these instructions. Raise it for very new accounts, few badges, few friends/followers/following, many past usernames, blacklist or secret-service records, little group history, few avatar items, few inventory items or game passes, no created or favourite games, and private inventory. Lower it for old accounts with many badges, friends, followers, groups, avatar items, inventory items, game passes, created games and favourite games, and clean records.",
+          content: "You estimate how likely a Roblox account is an alternate account (alt). Use only the supplied signals and do not invent data. Return JSON only: {\"chance\":0,\"reason\":\"...\"}. chance is an integer from 0 to 100. Write reason as 2-4 sentences: first the strongest risk factors with their concrete values, then the strongest mitigating factors with their concrete values, then why the final chance follows. Treat baseline_score as the rule-based starting point and explain any meaningful difference from it. Never restate these instructions. Raise it for very new accounts, few badges, few friends/followers/following, many past usernames, blacklist or secret-service records, little group history, few avatar items, few inventory items or game passes, no created or favourite games, and private inventory. Lower it for old accounts with many badges, friends, followers, groups, avatar items, inventory items, game passes, created games and favourite games, and clean records.",
         },
         {
           role: "user",
