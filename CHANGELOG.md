@@ -1,5 +1,9 @@
 # Change Log
 
+## 3.4.0 - 2026-11-22
+- `/background check` accepts a Discord user ID as well as a Roblox username. Pass `discord:<id>` with a Roblox username once to save the link; later checks by ID resolve the stored Roblox account and return the same report, including the Alt Risk percentage and Hammer Time account-created timestamp.
+- Saved Discord links live in the bot database and are updated on each check, with no separate `/link` command or manual user list.
+
 ## 3.3.0 - 2026-11-22
 - `/admin` gained **Change bot status**, offering Online, Idle, Do Not Disturb and Invisible. The choice is saved and reapplied on startup and on every presence rotation.
 - The optional Alt Risk model now receives the rule-based score and explains the strongest risk and mitigating signals in 2-4 sentences, with room for up to 500 characters.

@@ -46,6 +46,9 @@ const {
   buildPaginationFromPages,
   restorePaginationSession,
   isDiscordUserId,
+  parseDiscordId,
+  getDiscordLink,
+  linkDiscordAccount,
   DAILY_COMMAND_LIMIT,
   consumeDailyCommand,
   resetDailyCommandUsage,
@@ -84,11 +87,30 @@ test("registers only the retained commands", () => {
   assert.match(registered.find(({ name }) => name === "search").description, /every logged interaction by username, user ID, or interaction ID/);
   const backgroundOptions = registered.find(({ name }) => name === "background").options[0].options;
   assert.equal(backgroundOptions.find(({ name }) => name === "username").required, true);
-  assert.match(backgroundOptions.find(({ name }) => name === "username").description, /Roblox username/);
-  assert.equal(backgroundOptions.find(({ name }) => name === "discord"), undefined);
+  assert.match(backgroundOptions.find(({ name }) => name === "username").description, /Roblox username or Discord user ID/);
+  assert.equal(backgroundOptions.find(({ name }) => name === "discord").required, false);
+  assert.match(backgroundOptions.find(({ name }) => name === "discord").description, /Discord user ID/);
   const profileOptions = registered.find(({ name }) => name === "profile").options;
   assert.equal(profileOptions[0].name, "username");
   assert.equal(profileOptions[0].required, true);
+});
+
+test("Discord IDs resolve mentions and saved links update in place", () => {
+  const discordId = "987654321098765432";
+  assert.equal(parseDiscordId(discordId), discordId);
+  assert.equal(parseDiscordId(`<@${discordId}>`), discordId);
+  assert.equal(parseDiscordId(`<@!${discordId}>`), discordId);
+  assert.equal(parseDiscordId("not-a-discord-id"), undefined);
+  assert.equal(getDiscordLink(discordId), undefined);
+  linkDiscordAccount(discordId, "1234567", "Builderman", "owner");
+  assert.deepEqual(getDiscordLink(discordId), {
+    discordUserId: discordId,
+    robloxUserId: "1234567",
+    robloxUsername: "Builderman",
+  });
+  linkDiscordAccount(discordId, "7654321", "NewName", "owner");
+  assert.equal(getDiscordLink(discordId).robloxUsername, "NewName");
+  assert.equal(getDiscordLink(discordId).robloxUserId, "7654321");
 });
 
 test("/profile returns only the Roblox profile link", () => {
