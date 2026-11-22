@@ -398,7 +398,7 @@ test("/info reports bot statistics and integrations", () => {
   assert.equal(embed.fields.find(({ name }) => name === "Uptime").value, "1h 0s");
 });
 
-test("watcher accounts are merged by Discord ID with every source", () => {
+test("watcher accounts are listed once each as mentions", () => {
   const merged = formatLinkedDiscordAccounts([
     {
       watcher: "Roblox Watcher",
@@ -417,10 +417,9 @@ test("watcher accounts are merged by Discord ID with every source", () => {
       ],
     },
   ]);
-  assert.match(merged, /Linked Discord accounts:\*\* 3  •  \*\*Flagged:\*\* 2/);
-  assert.match(merged, /<@1522651757115609140> — Bloxlink, Discord Profile · Roblox Watcher \+ Exploit Watcher — flagged/);
-  assert.match(merged, /<@1533296343572025416> — Bloxlink · Exploit Watcher — flagged/);
+  assert.equal(merged, "**Linked Discord accounts:** 3\n• <@1522651757115609140>\n• <@111111111111111111>\n• <@1533296343572025416>");
   assert.equal(merged.match(/1522651757115609140/g).length, 1);
+  assert.doesNotMatch(merged, /Bloxlink|flagged/);
   assert.equal(formatLinkedDiscordAccounts([]), "");
 });
 
@@ -429,13 +428,13 @@ test("watcher sections show the server evidence behind each flag", () => {
     id: "1522651757115609140",
     sources: ["Bloxlink"],
     flagged: true,
-    reasons: ["Xeno (Executor Reselling Server) · 80 messages · last seen 2026-02-03"],
+    reasons: ["Xeno (Executor Reselling Server) · 80 messages · last seen <t:1770000000:R>"],
   }];
   const evidence = formatWatcherEvidence(accounts);
-  assert.match(evidence, /↳ <@1522651757115609140>: Xeno \(Executor Reselling Server\) · 80 messages · last seen 2026-02-03/);
+  assert.equal(evidence, "↳ <@1522651757115609140>\n  Xeno (Executor Reselling Server) · 80 messages · last seen <t:1770000000:R>");
   const header = formatLinkedDiscordAccounts([{ watcher: "Exploit Watcher", product: "exploitwatcher", accounts }]);
   assert.doesNotMatch(header, /↳/);
-  assert.match(header, /<@1522651757115609140> — Bloxlink · Exploit Watcher — flagged/);
+  assert.match(header, /• <@1522651757115609140>/);
 });
 
 test("watcher guild reasons describe server type, activity and recency", () => {
@@ -446,10 +445,8 @@ test("watcher guild reasons describe server type, activity and recency", () => {
       { name: "Water", guildTypes: [], activity: { messages: 2, reactions: 4 }, lastSeen: "2026-11-01T00:00:00.000Z" },
     ],
   });
-  assert.deepEqual(reasons, [
-    "Xeno (Executor Reselling Server) · 80 messages, 2 reactions, last seen 2026-02-03",
-    "Water · 2 messages, 4 reactions, last seen 2026-11-01",
-  ]);
+  assert.match(reasons[0], /^Xeno \(Executor Reselling Server\) · 80 messages, 2 reactions, last seen <t:\d+:R>$/);
+  assert.match(reasons[1], /^Water · 2 messages, 4 reactions, last seen <t:\d+:R>$/);
   assert.deepEqual(watcherGuildReasons({ flagged: true, guilds: [] }), ["flagged account; no server details were reported"]);
   assert.deepEqual(watcherGuildReasons({ flagged: false, guilds: [] }), []);
 });

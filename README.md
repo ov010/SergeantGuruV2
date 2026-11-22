@@ -40,7 +40,8 @@ Service and [x]Tracker), Exploit Watcher's injection history, and the badge
 chart. Linked accounts are rendered as mentions so they ping the linked
 Discord users. Each watcher section at the bottom lists the flagged servers
 behind the accounts it reported, why each server is flagged, and the activity
-seen there; the Exploit Watcher records stay at the bottom of the embed.
+seen there, with relative timestamps for when the account was last seen; the
+Exploit Watcher records stay at the bottom of the embed.
 `/ping` is public and reports Discord gateway latency, round trip and uptime;
 every other command except `/admin` needs granted access. All slash commands
 are registered globally with guild, bot-DM, and private-channel contexts and

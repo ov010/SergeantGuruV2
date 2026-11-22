@@ -1,5 +1,8 @@
 # Change Log
 
+## 3.1.6 - 2026-11-22
+- The linked-accounts header now shows only the account count and deduplicated mentions; link sources, watcher names and flag labels stay in the watcher sections. Evidence puts the account mention on its own line with the server details beneath it, and "last seen" uses Discord relative timestamps.
+
 ## 3.1.5 - 2026-11-22
 - Moved the flagged-server evidence lines out of the linked-accounts header and into the matching Roblox Watcher and Exploit Watcher sections at the bottom of `/background check`, so the header keeps the mentioned accounts and the why stays with the records.
 

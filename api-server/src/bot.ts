@@ -1182,51 +1182,30 @@ function watcherAccounts(payload: JsonObject): WatcherAccount[] {
   }));
 }
 
-// One Discord ID can be linked through both watchers (and with different link
-// sources), so merge those entries and keep every source that reported it.
+// Linked accounts are shown once each, as mentions, so an ID reported by both
+// watchers produces one ping and one line.
 export function formatLinkedDiscordAccounts(groups: WatcherAccountGroup[]): string {
-  const merged = new Map<string, { sources: string[]; flagged: boolean; watchers: string[]; reasons: Array<{ watcher: string; text: string }> }>();
-  for (const group of groups) {
-    for (const account of group.accounts) {
-      let entry = merged.get(account.id);
-      if (!entry) {
-        entry = { sources: [], flagged: false, watchers: [], reasons: [] };
-        merged.set(account.id, entry);
-      }
-      for (const source of account.sources) {
-        if (!entry.sources.includes(source)) entry.sources.push(source);
-      }
-      entry.flagged = entry.flagged || account.flagged;
-      if (!entry.watchers.includes(group.watcher)) entry.watchers.push(group.watcher);
-      for (const text of account.reasons ?? []) {
-        if (!entry.reasons.some((reason) => reason.watcher === group.watcher && reason.text === text)) {
-          entry.reasons.push({ watcher: group.watcher, text });
-        }
-      }
-    }
-  }
-  if (!merged.size) return "";
-  const flagged = [...merged.values()].filter((entry) => entry.flagged).length;
-  const lines = [...merged].slice(0, WATCHER_LINKED_ACCOUNT_LIMIT).map(([id, entry]) => {
-    const detail = [entry.sources.join(", "), entry.watchers.join(" + ")].filter(Boolean).join(" · ");
-    const label = isDiscordUserId(id) ? `<@${id}>` : `\`${id}\``;
-    return `• ${label}${detail ? ` — ${detail}` : ""}${entry.flagged ? " — flagged" : ""}`;
-  });
-  const omitted = merged.size - lines.length;
+  const ids = [...new Set(groups.flatMap((group) => group.accounts.map((account) => account.id)))];
+  if (!ids.length) return "";
+  const shown = ids.slice(0, WATCHER_LINKED_ACCOUNT_LIMIT);
+  const lines = shown.map((id) => `• ${isDiscordUserId(id) ? `<@${id}>` : `\`${id}\``}`);
+  const omitted = ids.length - shown.length;
   if (omitted > 0) lines.push(`… and ${omitted} more`);
-  return `**Linked Discord accounts:** ${merged.size}${flagged ? `  •  **Flagged:** ${flagged}` : ""}\n${lines.join("\n")}`;
+  return `**Linked Discord accounts:** ${ids.length}\n${lines.join("\n")}`;
 }
 
-const WATCHER_EVIDENCE_LIMIT = 6;
+const WATCHER_EVIDENCE_LIMIT = 10;
 const WATCHER_REASON_GUILD_LIMIT = 2;
 
-// Server evidence belongs with the watcher section it came from, so the header
-// block keeps just the mentioned accounts.
+// Server evidence belongs with the watcher section it came from: the mention
+// names the account and the indented line gives the server behind the flag.
 export function formatWatcherEvidence(accounts: WatcherAccount[]): string {
-  return accounts.flatMap((account) => (account.reasons ?? []).map((text) => {
+  return accounts.flatMap((account) => {
+    const reasons = account.reasons ?? [];
+    if (!reasons.length) return [];
     const label = isDiscordUserId(account.id) ? `<@${account.id}>` : `\`${account.id}\``;
-    return `↳ ${label}: ${text}`;
-  })).slice(0, WATCHER_EVIDENCE_LIMIT).join("\n");
+    return [`↳ ${label}`, ...reasons.map((text) => `  ${text}`)];
+  }).slice(0, WATCHER_EVIDENCE_LIMIT).join("\n");
 }
 
 // The Discord lookup is what explains a flag: the flagged servers the account
@@ -1250,7 +1229,7 @@ export function watcherGuildReasons(payload: JsonObject): string[] {
     if (reactions) stats.push(`${reactions.toLocaleString("en-US")} reaction${reactions === 1 ? "" : "s"}`);
     if (requests) stats.push(`${requests.toLocaleString("en-US")} request${requests === 1 ? "" : "s"}`);
     const lastSeen = typeof guild.lastSeen === "string" ? new Date(guild.lastSeen) : undefined;
-    if (lastSeen && !Number.isNaN(lastSeen.getTime())) stats.push(`last seen ${lastSeen.toISOString().slice(0, 10)}`);
+    if (lastSeen && !Number.isNaN(lastSeen.getTime())) stats.push(`last seen ${discordTimestamp(lastSeen, "R")}`);
     return `${name}${types.length ? ` (${types.join(", ")})` : ""}${stats.length ? ` · ${stats.join(", ")}` : ""}`;
   });
 }
