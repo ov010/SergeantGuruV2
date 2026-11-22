@@ -76,6 +76,8 @@ const robloxWatcherApiKey = process.env["ROBLOX_WATCHER_API_KEY"]?.trim() ?? "";
 const exploitWatcherApiKey = process.env["EXPLOIT_WATCHER_API_KEY"]?.trim() ?? "";
 const altAiBaseUrl = process.env["OLLAMA_BASE_URL"]?.trim() || "http://127.0.0.1:11434";
 const altAiModel = process.env["OLLAMA_MODEL"]?.trim() || "qwen2.5:1.5b";
+const ALT_AI_RETRY_MS = 5 * 60_000;
+let altAiRetryAt = 0;
 
 const BACKGROUND_CHECK_LOG_GUILD_ID = "1566264464062414881";
 const BACKGROUND_CHECK_LOG_CHANNEL_ID = "1566264530361655387";
@@ -1560,6 +1562,7 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
   });
   let aiAssessment: { chance: number; reason: string } | undefined;
   try {
+    if (Date.now() >= altAiRetryAt) {
     aiAssessment = await assessAltRisk({
       baseUrl: altAiBaseUrl,
       model: altAiModel,
@@ -1587,9 +1590,16 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
         inventory_private: inventoryPrivate || inventorySignals.private,
       },
     });
+    }
   } catch (error) {
     if (signal.aborted) throw error;
-    log("Local alt-risk AI assessment unavailable; using the rule-based score only.", error);
+    const cause = (error as { cause?: { code?: string } }).cause?.code;
+    if (cause === "ECONNREFUSED" || cause === "ECONNRESET" || cause === "ETIMEDOUT") {
+      altAiRetryAt = Date.now() + ALT_AI_RETRY_MS;
+      log("Local alt-risk AI is not running; using the rule-based score. Retrying in 5 minutes.");
+    } else {
+      log("Local alt-risk AI assessment unavailable; using the rule-based score only.", error);
+    }
   }
   const risk = blendAltRisk(ruleRisk, aiAssessment?.chance);
   if (aiAssessment && !risk.usedAi) {
@@ -1610,20 +1620,20 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
     recordPart("[x]Tracker Records", xtracker),
   ].join("\n\n");
   const accountSection = [
-    `Badges: ${badgeCountLabel}`,
-    `Username Changes: ${stat(history.length)}`,
-    `Created Games: ${stat(gameSignals.created)}`,
-    `Favourite Games: ${stat(gameSignals.favorites)}`,
+    `**Badges:** ${badgeCountLabel}`,
+    `**Username Changes:** ${stat(history.length)}`,
+    `**Created Games:** ${stat(gameSignals.created)}`,
+    `**Favourite Games:** ${stat(gameSignals.favorites)}`,
     "",
     "**Community**",
-    `Friends: ${stat(friends.friends)}`,
-    `Following: ${stat(friends.following)}`,
-    `Followers: ${stat(friends.followers)}`,
+    `**Friends:** ${stat(friends.friends)}`,
+    `**Following:** ${stat(friends.following)}`,
+    `**Followers:** ${stat(friends.followers)}`,
     "",
     "**Inventory**",
-    `Game Passes: ${inventoryStat(inventorySignals.gamepassCount, inventorySignals.gamepassCapped)}`,
-    `Items: ${inventoryStat(inventorySignals.itemCount, inventorySignals.itemCapped)}`,
-    `Asset Types: ${inventoryStat(inventorySignals.assetTypeCount, inventorySignals.itemCapped)}`,
+    `**Game Passes:** ${inventoryStat(inventorySignals.gamepassCount, inventorySignals.gamepassCapped)}`,
+    `**Items:** ${inventoryStat(inventorySignals.itemCount, inventorySignals.itemCapped)}`,
+    `**Asset Types:** ${inventoryStat(inventorySignals.assetTypeCount, inventorySignals.itemCapped)}`,
     `[Open Inventory](https://www.roblox.com/users/${user.id}/inventory/)`,
   ].join("\n");
   // A lookup with nothing to report reads as None instead of a green status.
@@ -1646,8 +1656,8 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
   // headers; Discord does not render headers inside embed field values.
   const sections = [
     [
-      `Roblox User ID ${user.id}`,
-      `Account Created ${created ? `${discordTimestamp(created, "D")} (${discordTimestamp(created, "R")})` : "Unknown"}`,
+      `**Roblox User ID:** ${user.id}`,
+      `**Account Created:** ${created ? `${discordTimestamp(created, "D")} (${discordTimestamp(created, "R")})` : "Unknown"}`,
     ].join("\n"),
     ...(linkedAccounts ? [linkedAccounts] : []),
     `## Roblox Account\n${accountSection}`,

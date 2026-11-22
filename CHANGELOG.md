@@ -1,5 +1,9 @@
 # Change Log
 
+## 3.2.1 - 2026-11-22
+- Bolded every labelled figure in `/background check` (`Roblox User ID`, `Account Created`, and the account, community and inventory stats) to match the punishment labels.
+- The optional local alt-risk AI now backs off for five minutes after a connection failure and logs one short line instead of a stack trace on every background check, so hosts without Ollama stay quiet.
+
 ## 3.2.0 - 2026-11-22
 - `/background check` now shows `None` for Roblox Watcher when it finds nothing, keeps the Roblox Watcher and Exploit Watcher labels small under the punishment records without dividers, renames the punishment entries to Blacklist Records, Secret Service Records and [x]Tracker Records with bold labels, and adds colons to the account, community and inventory figures.
 
