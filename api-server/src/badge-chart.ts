@@ -213,6 +213,26 @@ function fillCircle(png: PNG, centerX: number, centerY: number, radius: number, 
   }
 }
 
+// The avatar keeps a ring around it; chart points no longer get circle markers.
+function drawCircleOutline(png: PNG, centerX: number, centerY: number, radius: number, color: RGB): void {
+  const scaledRadius = radius * RENDER_SCALE;
+  const centerXScaled = centerX * RENDER_SCALE + (RENDER_SCALE - 1) / 2;
+  const centerYScaled = centerY * RENDER_SCALE + (RENDER_SCALE - 1) / 2;
+  const strokeRadius = RENDER_SCALE * 0.7;
+  const minX = Math.max(0, Math.floor(centerXScaled - scaledRadius - strokeRadius - 1));
+  const maxX = Math.min(png.width - 1, Math.ceil(centerXScaled + scaledRadius + strokeRadius + 1));
+  const minY = Math.max(0, Math.floor(centerYScaled - scaledRadius - strokeRadius - 1));
+  const maxY = Math.min(png.height - 1, Math.ceil(centerYScaled + scaledRadius + strokeRadius + 1));
+
+  for (let y = minY; y <= maxY; y += 1) {
+    for (let x = minX; x <= maxX; x += 1) {
+      const distance = Math.hypot(x - centerXScaled, y - centerYScaled);
+      const coverage = Math.max(0, Math.min(1, strokeRadius + 0.5 - Math.abs(distance - scaledRadius)));
+      blendPixel(png, x, y, color, coverage);
+    }
+  }
+}
+
 function drawAvatar(png: PNG, avatar: PNG, centerX: number, centerY: number, radius: number): void {
   const outputRadius = radius * RENDER_SCALE;
   const sourceSize = Math.min(avatar.width, avatar.height);
@@ -360,6 +380,7 @@ export async function makeBadgeChart(
   });
   fillCircle(png, 51, 42, 24, hexColor("#1b1b20"));
   if (avatar) drawAvatar(png, avatar, 51, 42, 24);
+  drawCircleOutline(png, 51, 42, 25, lineColor);
   drawText(png, fontAtlas, username, 91, 10, white, 26);
   drawText(png, fontAtlas, `${formatChartCount(dates.length)} badges | ${dateLabel(dates[0]!)} - ${dateLabel(dates.at(-1)!)}`, 91, 49, labelColor, 14);
   const summary = summarizeBadgeHistory(badges);

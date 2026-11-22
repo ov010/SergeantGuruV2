@@ -1,5 +1,9 @@
 # Change Log
 
+## 2.0.60 - 2026-11-22
+- Removed the blank lines and the Community and Inventory labels from the Roblox Account section, leaving one continuous list.
+- Restored the circular outline around the Roblox headshot in badge charts without bringing back the chart-point marker rings.
+
 ## 2.0.59 - 2026-11-22
 - `/info` keeps the Exploit Watcher API status with the other integrations instead of starting a page for it, and `/api` always sends all statuses in one embed.
 - Badge charts no longer draw the circular marker rings, and the unused account-creation marker logic and argument are gone.

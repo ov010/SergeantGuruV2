@@ -48,7 +48,7 @@ score, the Discord account score based on its age, and a combined score. Every s
 Markdown header so it renders larger like the account name; the content sits
 in the embed description, and long results continue into a second embed. Every
 embed in a multi-embed report keeps the same section order and formatting. The
-account, community and inventory figures share one Roblox Account section. The punishment record groups
+account, friend and inventory figures share one Roblox Account section. The punishment record groups
 Blacklist Records, Secret Service Records and [x]Tracker Records, and the small
 Roblox Watcher and Exploit Watcher labels show `None` when they have nothing
 to report.
