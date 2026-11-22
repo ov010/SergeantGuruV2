@@ -33,7 +33,7 @@ import {
   type SlashCommandOptionsOnlyBuilder,
   type SlashCommandSubcommandsOnlyBuilder,
 } from "discord.js";
-import { discordTimestamp, fetchRobloxAvatar, formatChartCount, makeBadgeChart, summarizeBadgeHistory } from "./badge-chart";
+import { discordTimestamp, fetchRobloxAvatar, formatChartCount, makeBadgeChart } from "./badge-chart";
 import { assessAltRisk } from "./bot-alt-ai";
 import packageJson from "../../package.json";
 
@@ -53,6 +53,7 @@ const XTRACKER_API = "https://api.xtracker.xyz";
 const BLACKLIST_BOARD = "gsCa53Bt";
 const SECRET_SERVICE_BOARD = "xgGFFrH3";
 const NONE = "None";
+const SECTION_DIVIDER = "────────────────────────";
 const MAX_RATE_LIMIT_RETRIES = 5;
 const BACKGROUND_CHECK_TIMEOUT_MS = 60_000;
 const DATA_DIR = fileURLToPath(new URL("../bot/data/", import.meta.url));
@@ -120,8 +121,6 @@ const EMBED_ROLES: Record<string, [string, string]> = {
   "No Interactions Found": ["embed_color_search_empty", "Orange"],
   "Interaction Search Results": ["embed_color_search_results", "Green"],
   "Bot Data": ["embed_color_bot_data", "Blurple"],
-  "Badge Tracking Expired": ["embed_color_badge_tracking_expired", "Orange"],
-  "Advanced Badge Tracking": ["embed_color_badge_tracking", "Blurple"],
   "Embed Colors Updated": ["embed_color_admin_color_result", "Green"],
   "Rotating Presence Updated": ["embed_color_presence_result", "Green"],
   "Authorization Updated": ["embed_color_authorization_result", "Green"],
@@ -179,7 +178,6 @@ const client = new Client({
   allowedMentions: { parse: [] },
 });
 const lastCommandAt = new Map<string, number>();
-const badgeTrackingByMessage = new Map<string, { requesterId: string; text: string }>();
 const interactionContext = new AsyncLocalStorage<string>();
 
 function log(message: string, error?: unknown) {
@@ -1183,12 +1181,17 @@ function detailsCreated(details: JsonObject): Date | undefined {
   return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
-async function backgroundCheck(username: string, signal: AbortSignal = new AbortController().signal): Promise<{ embed: EmbedBuilder; badgeTracking: string; image?: AttachmentBuilder }> {
+async function backgroundCheck(username: string, signal: AbortSignal = new AbortController().signal): Promise<{ embed: EmbedBuilder; image?: AttachmentBuilder }> {
   const user = await resolveUser(username, signal);
-  const [groups, details, history, friends, blacklistCards, secretCards, xtracker, avatarSignals, gameSignals, inventorySignals] = await Promise.all([
+  const [groups, details, history, friends, blacklistCards, secretCards, xtracker, avatarSignals, gameSignals, inventorySignals, avatar] = await Promise.all([
     fetchGroups(user.id, signal), fetchProfileDetails(user.id, signal), fetchUsernameHistory(user.id, signal), fetchFriendCounts(user.id, signal),
     fetchTrelloCards(BLACKLIST_BOARD, user.name, signal), fetchTrelloCards(SECRET_SERVICE_BOARD, user.name, signal), fetchXtracker(user.id, signal),
     fetchAvatarSignals(user.id, signal), fetchGameSignals(user.id, signal), fetchInventorySignals(user.id, signal),
+    fetchRobloxAvatar(user.id, signal).catch((error) => {
+      if (signal.aborted) throw error;
+      log("Roblox avatar unavailable", error);
+      return undefined;
+    }),
   ]);
   const blacklist = trelloText(blacklistCards, user.name, "blacklist");
   const secret = trelloText(secretCards, user.name, "secret");
@@ -1206,15 +1209,8 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
     badges = await fetchBadges(user.id, signal);
     badgeDataAvailable = true;
     const chartColor = CHART_COLORS[getSetting("chart_color", DEFAULT_CHART_COLOR)]?.[0] ?? CHART_COLORS[DEFAULT_CHART_COLOR]![0];
-    let avatar: Awaited<ReturnType<typeof fetchRobloxAvatar>> | undefined;
-    try {
-      avatar = await fetchRobloxAvatar(user.id, signal);
-    } catch (error) {
-      if (signal.aborted) throw error;
-      log("Roblox avatar unavailable", error);
-    }
     if (signal.aborted) throw signal.reason;
-    image = await makeBadgeChart(user.name, badges, chartColor, detailsCreated(details), avatar, user.id);
+    image = await makeBadgeChart(user.name, badges, chartColor, detailsCreated(details), avatar?.png, user.id);
     if (signal.aborted) throw signal.reason;
   } catch (error) {
     if (signal.aborted) throw error;
@@ -1287,99 +1283,94 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
   }
   const aiNote = risk.usedAi ? aiAssessment?.reason ?? "" : "";
   const band = formatRiskBand(risk.score);
-  const badgeSummary = summarizeBadgeHistory(badges);
-  const badgeActivity = badgeSummary
-    ? [
-        `**${badges.length.toLocaleString("en-US")} badges**`,
-        `• First earned ${discordTimestamp(badgeSummary.firstEarned)} (${discordTimestamp(badgeSummary.firstEarned, "R")})`,
-        `• Latest earned ${discordTimestamp(badgeSummary.latestEarned)} (${discordTimestamp(badgeSummary.latestEarned, "R")})`,
-        `• Average **${badgeSummary.averagePerYear.toFixed(1)}** per year over ${badgeSummary.totalYears}y`,
-        `• Peak year **${badgeSummary.peakYear}** · ${badgeSummary.peakYearBadges} badges · Active years **${badgeSummary.activeYears} of ${badgeSummary.totalYears}**`,
-        `• Last 30 days **${badgeSummary.last30Days}** · Last 12 months **${badgeSummary.last12Months}**`,
-        `• Busiest day ${discordTimestamp(badgeSummary.busiestDay)} · ${badgeSummary.busiestDayCount} badges`,
-        `• Longest quiet stretch **${badgeSummary.longestQuietMonths} months** · Months with no badges **${badgeSummary.monthsWithoutBadgesPercent}%**`,
-      ].join("\n")
-    : inventoryPrivate ? "Badge inventory is private or unavailable to the API key."
-      : badgeChartError ? `Badge chart unavailable: ${badgeChartError}` : "No badge history is available.";
+  const stat = (value: number | null | undefined): string =>
+    value === null || value === undefined ? "N/A" : value.toLocaleString("en-US");
+  const inventoryPrivateNote = inventorySignals.private;
+  const badgeCountLabel = badgeDataAvailable ? stat(badges.length) : inventoryPrivate ? "Private" : "N/A";
+  const stats = [
+    `**Friends** ${stat(friends.friends)}  •  **Following** ${stat(friends.following)}  •  **Followers** ${stat(friends.followers)}`,
+    `**Game Passes** ${inventoryPrivateNote ? "Private" : stat(inventorySignals.gamepassCount)}  •  **Inventory Items** ${inventoryPrivateNote ? "Private" : stat(inventorySignals.itemCount)}  •  **Asset Types** ${inventoryPrivateNote ? "Private" : stat(inventorySignals.assetTypeCount)}`,
+    `**Created Games** ${stat(gameSignals.created)}  •  **Favourite Games** ${stat(gameSignals.favorites)}  •  **Badges** ${badgeCountLabel}  •  **Username Changes** ${stat(history.length)}`,
+    `[Open Inventory](https://www.roblox.com/users/${user.id}/inventory/)`,
+    `**Alt Risk** ${risk.score}% — ${band}${aiNote ? `\n${aiNote}` : ""}`,
+  ].join("\n");
+  const recordPart = (label: string, text: string): string =>
+    `**${label}**\n${text.length > 300 ? `${text.slice(0, 299)}…` : text}`;
+  const punishmentRecord = [
+    recordPart("Blacklist", blacklist),
+    recordPart("Secret Service", secret),
+    recordPart("[x]Tracker (external)", xtracker),
+  ].join("\n\n");
   const embed = new EmbedBuilder()
     .setTitle(user.name)
     .setURL(`https://www.roblox.com/users/${user.id}/profile`)
+    .setDescription([
+      `Roblox User ID \`${user.id}\``,
+      `Roblox Account Created ${created ? `${discordTimestamp(created, "D")} (${discordTimestamp(created, "R")})` : "Unknown"}`,
+    ].join("\n"))
     .setColor(embedColor("Background Check"));
-  if (inventoryPrivate) embed.setDescription("Badge inventory is set to private. Cannot draw badge history.");
-  else if (!image && badgeChartError) embed.setDescription(`Badge chart unavailable: ${badgeChartError}`);
+  if (avatar) embed.setThumbnail(avatar.url);
   embed.addFields(
-    { name: "Past Usernames", value: history.length ? history.map((name) => `• ${name}`).join("\n").slice(0, 1024) : NONE, inline: false },
-    { name: "Account Created", value: created ? `${discordTimestamp(created)} (${discordTimestamp(created, "R")})` : "Unknown", inline: true },
-    { name: "Alt Risk", value: [
-        `**${risk.score}%** — ${band}`,
-        aiNote ? `AI observation: ${aiNote}` : "",
-        "Blended from rule-based signals and a local AI estimate. The rule score weighs every available signal: account age, badges, friends, followers, following, past usernames, groups and division ranks, avatar items, inventory items, game passes, created games, favourite games and record checks. Keep in mind a user may appear legitimate even if they are an alt, so be cautious and do not rely on it entirely.",
-      ].filter(Boolean).join("\n").slice(0, 1024), inline: false },
-    { name: "Friends", value: friends.friends === null ? NONE : friends.friends.toLocaleString("en-US"), inline: true },
-    { name: "Following", value: friends.following === null ? NONE : friends.following.toLocaleString("en-US"), inline: true },
-    { name: "Followers", value: friends.followers === null ? NONE : friends.followers.toLocaleString("en-US"), inline: true },
-    { name: "Inventory", value: `[Click Here](https://www.roblox.com/users/${user.id}/inventory/)`, inline: false },
-    { name: "Ranks & Division", value: formatGroups(groups).slice(0, 1024), inline: false },
-    { name: "Blacklist Record", value: blacklist.slice(0, 1024), inline: false },
-    { name: "Secret Service Record", value: secret.slice(0, 1024), inline: false },
-    { name: "External Records", value: xtracker.slice(0, 1024), inline: false },
-  ).setFooter({ text: footer() });
+    { name: "Account Stats", value: `${SECTION_DIVIDER}\n${stats}`.slice(0, 1024), inline: false },
+    { name: "Ranks & Division", value: `${SECTION_DIVIDER}\n${formatGroups(groups)}`.slice(0, 1024), inline: false },
+    { name: "Punishment Record", value: `${SECTION_DIVIDER}\n${punishmentRecord}`.slice(0, 1024), inline: false },
+  );
+  if (!image) {
+    embed.addFields({
+      name: "Badge Chart",
+      value: `${SECTION_DIVIDER}\n${inventoryPrivate
+        ? "Badge inventory is set to private. Cannot draw badge history."
+        : badgeChartError ? `Badge chart unavailable: ${badgeChartError}` : "No badge history is available."}`.slice(0, 1024),
+      inline: false,
+    });
+  }
+  embed.setFooter({ text: footer() });
   if (image) embed.setImage("attachment://badge-history.png");
   return {
     embed,
-    badgeTracking: badgeActivity,
     ...(image ? { image: new AttachmentBuilder(image, { name: "badge-history.png" }) } : {}),
   };
 }
 
 async function badgeCountReport(username: string, signal: AbortSignal): Promise<{ embed: EmbedBuilder; image?: AttachmentBuilder }> {
   const user = await resolveUser(username, signal);
-  const [details, badges] = await Promise.all([
+  const [details, badges, avatar] = await Promise.all([
     fetchProfileDetails(user.id, signal),
     fetchBadges(user.id, signal),
+    fetchRobloxAvatar(user.id, signal).catch((error) => {
+      if (signal.aborted) throw error;
+      log("Roblox avatar unavailable", error);
+      return undefined;
+    }),
   ]);
   if (signal.aborted) throw signal.reason;
   const created = detailsCreated(details);
-  const summary = summarizeBadgeHistory(badges);
-  const profile = `https://www.roblox.com/users/${user.id}/profile`;
   const embed = new EmbedBuilder()
     .setTitle(user.name)
-    .setURL(profile)
+    .setURL(`https://www.roblox.com/users/${user.id}/profile`)
+    .setDescription([
+      `Roblox User ID \`${user.id}\``,
+      `Roblox Account Created ${created ? `${discordTimestamp(created, "D")} (${discordTimestamp(created, "R")})` : "Unknown"}`,
+    ].join("\n"))
     .setColor(embedColor("Badge Count"))
     .setFooter({ text: footer() });
-
-  if (!summary) {
-    embed.addFields({ name: "Advanced Badge Tracking", value: "No badge award history is available for this account." });
+  if (avatar) embed.setThumbnail(avatar.url);
+  if (!badges.length) {
+    embed.addFields({ name: "Badge Chart", value: "No badge award history is available for this account." });
     return { embed };
   }
-
-  let avatar: Awaited<ReturnType<typeof fetchRobloxAvatar>> | undefined;
   try {
-    avatar = await fetchRobloxAvatar(user.id, signal);
+    const chartColor = CHART_COLORS[getSetting("chart_color", DEFAULT_CHART_COLOR)]?.[0] ?? CHART_COLORS[DEFAULT_CHART_COLOR]![0];
+    const chart = await makeBadgeChart(user.name, badges, chartColor, created, avatar?.png, user.id);
+    if (signal.aborted) throw signal.reason;
+    embed.setImage("attachment://badge-history.png");
+    return { embed, image: new AttachmentBuilder(chart, { name: "badge-history.png" }) };
   } catch (error) {
     if (signal.aborted) throw error;
-    log("Roblox avatar unavailable", error);
+    log("Badge chart unavailable", error);
+    embed.addFields({ name: "Badge Chart", value: errorText(error, "The badge chart could not be generated.").slice(0, 1024) });
+    return { embed };
   }
-  if (signal.aborted) throw signal.reason;
-  const chartColor = CHART_COLORS[getSetting("chart_color", DEFAULT_CHART_COLOR)]?.[0] ?? CHART_COLORS[DEFAULT_CHART_COLOR]![0];
-  const chart = await makeBadgeChart(user.name, badges, chartColor, created, avatar, user.id);
-  embed.addFields({
-    name: "Advanced Badge Tracking",
-    value: [
-      `**Total badges:** ${badges.length.toLocaleString("en-US")}`,
-      `**First earned:** ${discordTimestamp(summary.firstEarned)} (${discordTimestamp(summary.firstEarned, "R")})`,
-      `**Latest earned:** ${discordTimestamp(summary.latestEarned)} (${discordTimestamp(summary.latestEarned, "R")})`,
-      `**Average:** ${summary.averagePerYear.toFixed(1)} badges per year across ${summary.totalYears} calendar years`,
-      `**Peak year:** ${summary.peakYear} (${summary.peakYearBadges.toLocaleString("en-US")} badges)`,
-      `**Activity:** ${summary.activeYears} active years of ${summary.totalYears}`,
-      `**Recent awards:** ${summary.last30Days} in the last 30 days, ${summary.last12Months} in the last 12 months`,
-      `**Busiest day:** ${discordTimestamp(summary.busiestDay)} (${summary.busiestDayCount.toLocaleString("en-US")} badges)`,
-      `**Longest quiet period:** ${summary.longestQuietMonths} months`,
-      `**Months without awards:** ${summary.monthsWithoutBadgesPercent}%`,
-    ].join("\n").slice(0, 1024),
-  });
-  embed.setImage("attachment://badge-history.png");
-  return { embed, image: new AttachmentBuilder(chart, { name: "badge-history.png" }) };
 }
 
 function isOwner(userId: string): boolean {
@@ -1667,6 +1658,7 @@ function isAdminInteraction(interaction: Interaction): boolean {
   if (interaction.isChatInputCommand()) return interaction.commandName === "admin";
   if (interaction.isStringSelectMenu()) {
     return interaction.customId === "admin-panel"
+      || interaction.customId === "admin-authorized-user"
       || interaction.customId.startsWith("admin-color-target")
       || interaction.customId.startsWith("admin-color-value:");
   }
@@ -1688,15 +1680,10 @@ async function logInteractionAttempt(interaction: Interaction): Promise<void> {
       ?? (!ACCESS_CONTROLLED_COMMANDS.has(interaction.commandName) || isCommandAuthorized(interaction) ? "allowed" : "denied");
   } else if (interaction.isButton()) {
     action = `button:${interaction.customId}`;
-    if (interaction.customId === "advanced-badge-tracking") {
-      const tracking = badgeTrackingByMessage.get(interaction.message.id);
-      access = !tracking
-        ? "expired"
-        : tracking.requesterId === interaction.user.id && isInteractionAuthorized(interaction) ? "allowed" : "denied";
-    }
   } else if (interaction.isStringSelectMenu()) {
     action = `select:${interaction.customId}${interaction.values.length ? `:${interaction.values.join(",")}` : ""}`;
     if (interaction.customId === "admin-panel") access = isOwner(interaction.user.id) ? "allowed" : "denied";
+    else if (interaction.customId === "admin-authorized-user") access = isOwner(interaction.user.id) ? "allowed" : "denied";
     else if (interaction.customId === "data-view") access = isInteractionAuthorized(interaction) ? "allowed" : "denied";
     else if (interaction.customId.startsWith("admin-color-target") || interaction.customId.startsWith("admin-color-value:")) {
       access = isOwner(interaction.user.id) ? "allowed" : "denied";
@@ -1779,24 +1766,10 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, req
       });
       return;
     }
-    const advancedButton = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId("advanced-badge-tracking")
-        .setLabel("Advanced Badge Tracking")
-        .setStyle(ButtonStyle.Secondary),
-    );
-    const message = await interaction.editReply({
+    await interaction.editReply({
       embeds: [outcome.result.embed],
       files: outcome.result.image ? [outcome.result.image] : [],
-      components: [advancedButton],
-    });
-    if (badgeTrackingByMessage.size >= 500) {
-      const oldestMessageId = badgeTrackingByMessage.keys().next().value;
-      if (oldestMessageId) badgeTrackingByMessage.delete(oldestMessageId);
-    }
-    badgeTrackingByMessage.set(message.id, {
-      requesterId: interaction.user.id,
-      text: outcome.result.badgeTracking,
+      components: [],
     });
   } catch (error) {
     if (deadlineExpired) {
@@ -2037,17 +2010,17 @@ export const commands = [
     .setDescription("Run a Roblox background check.")
     .addSubcommand((sub) => sub
       .setName("check")
-      .setDescription("Build a full badge-history report for a Roblox user.")
+      .setDescription("Run a full background check with a badge chart.")
       .addStringOption((option) => option
         .setName("username")
         .setDescription("The Roblox username to check")
         .setRequired(true))),
   new SlashCommandBuilder()
     .setName("badge")
-    .setDescription("Show a Roblox user's badge history.")
+    .setDescription("Generate a Roblox user's badge chart.")
     .addSubcommand((sub) => sub
       .setName("count")
-      .setDescription("Show badge totals, chart, and advanced tracking.")
+      .setDescription("Generate the badge chart for one Roblox user.")
       .addStringOption((option) => option
         .setName("username")
         .setDescription("The Roblox username to check")
@@ -2524,7 +2497,7 @@ function createDataAccessEmbed(): EmbedBuilder {
       value: [
         `Authorized users: ${users.length}`,
         `Authorized roles: ${roles.length}`,
-        `Active badge results: ${badgeTrackingByMessage.size}`,
+        `Access-controlled commands: ${ACCESS_CONTROLLED_COMMANDS.size}`,
       ].join("\n"),
       inline: false,
     },
@@ -2575,7 +2548,7 @@ function createDataBotEmbed(status: DataStatus): EmbedBuilder {
       name: "Activity",
       value: [
         `Users in cooldown (last minute): ${recentCommandUsers}`,
-        `Active badge results: ${badgeTrackingByMessage.size}`,
+        `Daily command limit: ${DAILY_COMMAND_LIMIT}`,
       ].join("\n"),
       inline: true,
     },
@@ -2649,25 +2622,6 @@ client.on("interactionCreate", async (interaction) => {
     try {
     if (interaction.isChatInputCommand()) {
       await handleCommand(interaction);
-    } else if (interaction.isButton() && interaction.customId === "advanced-badge-tracking") {
-      const tracking = badgeTrackingByMessage.get(interaction.message.id);
-      if (!tracking) {
-        await interaction.reply({ embeds: [makeEmbed("Badge Tracking Expired", "This badge-tracking result has expired. Run the background check again.", "Warning")] });
-        return;
-      }
-      if (!isInteractionAuthorized(interaction)) {
-        await interaction.reply({ embeds: [deniedEmbed("Ask the bot owner to grant access.")] });
-        return;
-      }
-      if (interaction.user.id !== tracking.requesterId) {
-        await interaction.reply({ embeds: [deniedEmbed("Only the user who requested this background check can view its advanced badge tracking.")] });
-        return;
-      }
-      const pagination = buildPagination(makeEmbed("Advanced Badge Tracking", tracking.text, "Info"));
-      await interaction.reply({
-        embeds: pagination.embeds,
-        components: pagination.components,
-      });
     } else if (interaction.isButton() && interaction.customId.startsWith("pager:")) {
       const [, token, pageValue] = interaction.customId.split(":");
       const session = token ? paginationSessions.get(token) : undefined;

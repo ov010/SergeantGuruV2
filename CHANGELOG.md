@@ -1,5 +1,11 @@
 # Change Log
 
+## 2.13.0 - 2026-11-22
+- `/background check` now has a profile headshot, username and Roblox ID header, a clean account-created line, split sections for stats, ranks, and punishment records, and the badge chart at the bottom.
+- Account stats now include friends, following, followers, game passes, inventory items, asset types, created and favourite games, badges, username changes, and an inventory link.
+- `/badge count` now returns only the requested user's headshot, Roblox ID, account creation date, and badge chart.
+- Removed the advanced badge-tracking button, activity summary, and its colour option.
+
 ## 2.12.0 - 2026-11-22
 - The admin panel has a second dropdown listing every authorized user; selecting one shows their grant and usage and pings them as `<@id>`.
 - Authorized users are capped at 10 access-controlled commands per UTC day (down from 50); the owner remains exempt. The per-command 5/day limits still apply.

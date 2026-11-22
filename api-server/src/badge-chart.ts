@@ -38,7 +38,12 @@ function loadFontAtlas(): Promise<PNG> {
   return fontAtlasPromise;
 }
 
-export async function fetchRobloxAvatar(userId: string, signal?: AbortSignal): Promise<PNG> {
+export interface RobloxAvatar {
+  png: PNG;
+  url: string;
+}
+
+export async function fetchRobloxAvatar(userId: string, signal?: AbortSignal): Promise<RobloxAvatar> {
   const requestSignal = signal
     ? AbortSignal.any([signal, AbortSignal.timeout(20_000)])
     : AbortSignal.timeout(20_000);
@@ -54,7 +59,7 @@ export async function fetchRobloxAvatar(userId: string, signal?: AbortSignal): P
 
   const imageResponse = await fetch(imageUrl, { signal: requestSignal });
   if (!imageResponse.ok) throw new Error(`Roblox avatar download failed (HTTP ${imageResponse.status}).`);
-  return parsePng(new Uint8Array(await imageResponse.arrayBuffer()));
+  return { png: await parsePng(new Uint8Array(await imageResponse.arrayBuffer())), url: imageUrl };
 }
 
 function packPng(png: PNG): Promise<Buffer> {
