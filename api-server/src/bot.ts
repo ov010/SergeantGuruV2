@@ -481,8 +481,7 @@ export function createAuthorizedUserEmbed(view: AuthorizedUserView): EmbedBuilde
     : view.authorizedAt;
   const embed = makeEmbed(
     "Authorized User",
-    [`**${view.displayName ?? view.username ?? "Unknown user"}**`, view.username ? `@${view.username}` : ""]
-      .filter(Boolean).join("\n"),
+    [`**${view.displayName ?? view.username ?? "Unknown user"}**`, `<@${view.userId}>`].join("\n"),
     "Info",
   );
   if (view.avatarUrl) embed.setThumbnail(view.avatarUrl);
@@ -2904,6 +2903,8 @@ client.on("interactionCreate", async (interaction) => {
           daily: dailyCommandUsage(userId),
           perCommand: Object.keys(COMMAND_DAILY_LIMITS).map((name) => commandDailyUsage(userId, name)),
         })],
+        // The client blocks mentions by default; allow just the viewed user.
+        allowedMentions: { parse: [], users: [userId] },
       });
     } else if (interaction.isStringSelectMenu() && interaction.customId === "admin-panel") {
       if (!isOwner(interaction.user.id)) {

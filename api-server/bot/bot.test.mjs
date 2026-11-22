@@ -254,7 +254,7 @@ test("the authorized-user view shows identity, headshot, grant time, and grantor
 
   assert.equal(embed.title, "Authorized User");
   assert.match(embed.description, /\*\*Helper\*\*/);
-  assert.match(embed.description, /@helper/);
+  assert.match(embed.description, /<@1154853004676178092>/);
   assert.equal(embed.thumbnail.url, "https://cdn.discordapp.com/avatars/1154853004676178092/abc.png");
   assert.match(field("Discord ID"), /1154853004676178092/);
   assert.match(field("Authorized"), /<t:\d+:F>/);

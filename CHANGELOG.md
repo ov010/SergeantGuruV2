@@ -1,5 +1,8 @@
 # Change Log
 
+## 3.2.2 - 2026-11-22
+- The admin panel's authorized-user view now shows the user as a `<@ID>` mention and allows that mention, so viewing them pings the account instead of printing a plain username.
+
 ## 3.2.1 - 2026-11-22
 - Bolded every labelled figure in `/background check` (`Roblox User ID`, `Account Created`, and the account, community and inventory stats) to match the punishment labels.
 - The optional local alt-risk AI now backs off for five minutes after a connection failure and logs one short line instead of a stack trace on every background check, so hosts without Ollama stay quiet.
