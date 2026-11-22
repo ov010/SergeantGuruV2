@@ -29,34 +29,16 @@ import {
   TextInputStyle,
   type ChatInputCommandInteraction,
   type Interaction,
-  type InteractionEditReplyOptions,
-  type Message,
   type MessageActionRowComponentBuilder,
-  type RepliableInteraction,
   type SlashCommandOptionsOnlyBuilder,
   type SlashCommandSubcommandsOnlyBuilder,
 } from "discord.js";
 import { discordTimestamp, fetchRobloxAvatar, formatChartCount, makeBadgeChart, summarizeBadgeHistory } from "./badge-chart";
-import {
-  calculateGrade,
-  calculateHostingGrade,
-  capitalizeGradeAbbreviations,
-  correctGradeMistakeGrammar,
-  formatGradeFeedback,
-  gradePassThreshold,
-  gradingAbbreviations,
-  normalizeGradeText,
-  type GradeAssessment,
-  type GradeSeverity,
-} from "./bot-grade";
-import { reviewGradeSubmission, suggestNewGradeMistakes } from "./bot-grade-ai";
 import { assessAltRisk } from "./bot-alt-ai";
-import { createGradeRules, fetchGradeSheetRules, gradeSheetSeverityOverrides, mistakeMatchesSheetRule } from "./grade-sheet";
 import packageJson from "../../package.json";
 
 export { formatChartCount, makeBadgeChart };
 export const BOT_VERSION: string = packageJson.version;
-export { parseGradeMistakeSuggestions, parseGradeReview } from "./bot-grade-ai";
 export { parseAltAssessment } from "./bot-alt-ai";
 
 const OWNER_ID = "1186370477606838375";
@@ -87,12 +69,11 @@ const robloxApiKey = process.env["ROBLOX_OPEN_CLOUD_API_KEY"]?.trim();
 if (!token) throw new Error("DISCORD_BOT_TOKEN is required.");
 if (!robloxApiKey) throw new Error("ROBLOX_OPEN_CLOUD_API_KEY is required.");
 const xtrackerApiKey = process.env["XTRACKER_API_KEY"]?.trim() ?? "";
-const gradingAiBaseUrl = process.env["OLLAMA_BASE_URL"]?.trim() || "http://127.0.0.1:11434";
-const gradingAiModel = process.env["OLLAMA_MODEL"]?.trim() || "qwen2.5:1.5b";
+const altAiBaseUrl = process.env["OLLAMA_BASE_URL"]?.trim() || "http://127.0.0.1:11434";
+const altAiModel = process.env["OLLAMA_MODEL"]?.trim() || "qwen2.5:1.5b";
 
 const BACKGROUND_CHECK_LOG_GUILD_ID = "1566264464062414881";
 const BACKGROUND_CHECK_LOG_CHANNEL_ID = "1566264530361655387";
-export const GRADING_FEEDBACK_CHANNEL_ID = "1569796036556234752";
 
 const CHART_COLORS: Record<string, [string, string]> = {
   Blurple: ["#5865f2", "#8ea1e1"],
@@ -116,7 +97,6 @@ const EMBED_ROLES: Record<string, [string, string]> = {
   "Profile": ["embed_color_profile", "Blue"],
   "Could Not Load Profile": ["embed_color_profile_error", "Orange"],
   "Bot Interaction": ["embed_color_interaction_log", "Blurple"],
-  "AI Grading Rule Candidates - Review Before Adding": ["embed_color_grade_suggestions", "Blurple"],
   "Access Denied": ["embed_color_access_denied", "Red"],
   "Admin Panel": ["embed_color_admin_panel", "Blurple"],
   "Change Embed Colors": ["embed_color_admin_color_menu", "Blurple"],
@@ -132,7 +112,6 @@ const EMBED_ROLES: Record<string, [string, string]> = {
   "Badge Count Timed Out": ["embed_color_badge_timeout", "Orange"],
   "Could Not Load Badge Count": ["embed_color_badge_error", "Orange"],
   "Server Required": ["embed_color_server_required", "Orange"],
-  "Create Grade Report": ["embed_color_grade_setup", "Blurple"],
   "Bot Information": ["embed_color_bot_information", "Blurple"],
   "Change Log": ["embed_color_changelog", "Blue"],
   "Change Log Unavailable": ["embed_color_changelog_error", "Orange"],
@@ -144,18 +123,8 @@ const EMBED_ROLES: Record<string, [string, string]> = {
   "Badge Tracking Expired": ["embed_color_badge_tracking_expired", "Orange"],
   "Advanced Badge Tracking": ["embed_color_badge_tracking", "Blurple"],
   "Embed Colors Updated": ["embed_color_admin_color_result", "Green"],
-  "Invalid Evaluation Type": ["embed_color_invalid_evaluation", "Orange"],
   "Rotating Presence Updated": ["embed_color_presence_result", "Green"],
   "Authorization Updated": ["embed_color_authorization_result", "Green"],
-  "Invalid Feedback": ["embed_color_feedback_invalid", "Orange"],
-  "Grading Feedback Saved": ["embed_color_feedback_saved", "Green"],
-  "Missing Usernames": ["embed_color_missing_usernames", "Orange"],
-  "Grading Rules Unavailable": ["embed_color_grade_rules_error", "Red"],
-  "Report Too Long": ["embed_color_grade_report_too_long", "Orange"],
-  "VIP Training Grade Report": ["embed_color_grade_vip", "Green"],
-  "Guarding Evaluation Grade Report": ["embed_color_grade_guarding", "Green"],
-  "Hosting Evaluation Grade Report": ["embed_color_grade_hosting", "Green"],
-  "Role Not Found": ["embed_color_role_not_found", "Orange"],
   "Command Error": ["embed_color_command_error", "Red"],
 };
 const EMBED_TITLE_ROLES: Record<string, string> = {
@@ -188,34 +157,9 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (discord_user_id, usage_day)
   );
-  CREATE TABLE IF NOT EXISTS grade_feedback (
-    normalized_mistake TEXT PRIMARY KEY,
-    severity TEXT NOT NULL CHECK (severity IN ('MINOR', 'MODERATE', 'MAJOR', 'EXTREME')),
-    updated_by TEXT NOT NULL,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
   INSERT OR IGNORE INTO authorized_users (discord_user_id, authorized_by)
   VALUES ('${OWNER_ID}', '${OWNER_ID}');
 `);
-
-// Older databases only allowed MINOR, MODERATE, and MAJOR feedback overrides.
-const gradeFeedbackSchema = (db.prepare(
-  "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'grade_feedback'",
-).get() as { sql?: string } | undefined)?.sql ?? "";
-if (gradeFeedbackSchema && !gradeFeedbackSchema.includes("'EXTREME'")) {
-  db.exec(`
-    ALTER TABLE grade_feedback RENAME TO grade_feedback_legacy;
-    CREATE TABLE grade_feedback (
-      normalized_mistake TEXT PRIMARY KEY,
-      severity TEXT NOT NULL CHECK (severity IN ('MINOR', 'MODERATE', 'MAJOR', 'EXTREME')),
-      updated_by TEXT NOT NULL,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-    INSERT INTO grade_feedback (normalized_mistake, severity, updated_by, updated_at)
-    SELECT normalized_mistake, severity, updated_by, updated_at FROM grade_feedback_legacy;
-    DROP TABLE grade_feedback_legacy;
-  `);
-}
 
 type JsonObject = Record<string, any>;
 type BadgeDate = Date;
@@ -251,47 +195,6 @@ async function sendLogEmbed(embed: EmbedBuilder): Promise<void> {
   // Logs are audit records: always send the whole entry as one embed instead of
   // splitting it across paginated pages.
   await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
-}
-
-export interface GradingFeedbackLogEntry {
-  mistake: string;
-  severity: GradeSeverity;
-  userId: string;
-  username?: string;
-}
-
-export function createGradingFeedbackLogEmbed({
-  mistake,
-  severity,
-  userId,
-  username,
-}: GradingFeedbackLogEntry): EmbedBuilder {
-  const sheetMistake = capitalizeGradeAbbreviations(
-    mistake.replaceAll("`", "'").replace(/\s+/g, " ").trim(),
-  );
-  const embed = makeEmbed(
-    "Grading Feedback Saved",
-    "New grading feedback saved. Paste the row below into the Google Sheet.",
-    "Success",
-  );
-  embed.addFields(
-    { name: "Severity", value: severity, inline: true },
-    { name: "Submitted by", value: username ? `${username} (<@${userId}>)` : `<@${userId}>`, inline: true },
-    { name: "Google Sheets entry", value: `\`\`\`\n[-] ${sheetMistake} - ${severity}\n\`\`\`` },
-  );
-  embed.setTimestamp(new Date());
-  return embed;
-}
-
-async function sendGradingFeedbackLog(embed: EmbedBuilder, userId: string): Promise<void> {
-  if (!client.isReady()) throw new Error("Discord client is not ready to send a grading feedback log.");
-  const channel = await client.channels.fetch(GRADING_FEEDBACK_CHANNEL_ID);
-  if (!channel || !("send" in channel)) {
-    throw new Error(`Grading feedback channel ${GRADING_FEEDBACK_CHANNEL_ID} was not available.`);
-  }
-  // Keep the owner ping in message content because mentions inside embeds do not notify.
-  // Logs are never paginated, so the whole entry stays in one embed.
-  await channel.send({ content: `<@${userId}>`, embeds: [embed], allowedMentions: { users: [userId] } });
 }
 
 function getSetting(key: string, fallback: string): string {
@@ -444,9 +347,6 @@ export function buildPaginationFromPages(
 
 function makeEmbed(title: string, description: string, _colorRole: string): EmbedBuilder {
   let titleRole = EMBED_TITLE_ROLES[title];
-  if (!titleRole && title.endsWith(" Grade Report")) {
-    titleRole = `${title.slice(0, -" Grade Report".length)} Grade Report`;
-  }
   if (!titleRole && Object.hasOwn(EMBED_ROLES, title)) titleRole = title;
   if (!titleRole) throw new Error(`No selectable color target is configured for embed: ${title}`);
   return new EmbedBuilder().setTitle(title).setDescription(description).setColor(embedColor(titleRole)).setFooter({ text: footer() });
@@ -983,80 +883,6 @@ export function createProfileLinkEmbed(username: string, userId: string): EmbedB
     .setFooter({ text: footer() });
 }
 
-// A four-frame waiting spinner: / – \ | then back to /. Discord messages can be
-// edited in place, so repeating edits animate it without sending new messages.
-export const SPINNER_FRAMES = ["/", "–", "\\", "|"] as const;
-// Discord rate limits edits per channel, so 600 ms is about as fast as frames
-// can land without the animation falling behind the request it is covering.
-export const SPINNER_INTERVAL_MS = 600;
-
-export function spinnerFrame(index: number): string {
-  const frames = SPINNER_FRAMES.length;
-  return SPINNER_FRAMES[((index % frames) + frames) % frames]!;
-}
-
-export function spinnerContent(index: number, label: string): string {
-  return `${spinnerFrame(index)} ${label}`;
-}
-
-export interface Spinner {
-  /** Frames drawn so far, including the first one. */
-  frameCount: () => number;
-  /** Stops the animation, then replaces the message with the final payload. */
-  finish: (payload?: InteractionEditReplyOptions) => Promise<Message>;
-  /** Stops the animation without editing the message. */
-  stop: () => Promise<void>;
-}
-
-// A spinner that is never stopped (for example, a handler that throws before
-// finishing) still has to release the message, so the animation is capped.
-export const SPINNER_MAX_MS = 5 * 60_000;
-
-// Reply immediately with the spinner instead of deferring: a deferred reply
-// shows Discord's own dotted "bot is thinking" state, and that cannot be themed.
-export async function startSpinner(
-  interaction: RepliableInteraction,
-  label: string,
-  options: { intervalMs?: number } = {},
-): Promise<Spinner> {
-  const intervalMs = Math.max(1, Math.trunc(options.intervalMs ?? SPINNER_INTERVAL_MS));
-  await interaction.reply({ content: spinnerContent(0, label), allowedMentions: { parse: [] } });
-  let frame = 0;
-  let stopped = false;
-  const pause = new AbortController();
-  let inFlight: Promise<unknown> = Promise.resolve();
-  let safety: ReturnType<typeof setTimeout> | undefined;
-  // Only one edit is ever in flight, so a slow REST queue cannot pile up stale
-  // frames that would land after the final embed.
-  const loop = (async () => {
-    while (!stopped) {
-      try { await delay(intervalMs, undefined, { signal: pause.signal }); }
-      catch { return; }
-      if (stopped) return;
-      frame += 1;
-      inFlight = interaction.editReply({ content: spinnerContent(frame, label) }).catch(() => undefined);
-      await inFlight;
-    }
-  })();
-  const stop = async (): Promise<void> => {
-    stopped = true;
-    if (safety) clearTimeout(safety);
-    pause.abort();
-    await loop.catch(() => undefined);
-    await inFlight.catch(() => undefined);
-  };
-  safety = setTimeout(() => void stop(), SPINNER_MAX_MS);
-  safety.unref?.();
-  const finish = async (payload: InteractionEditReplyOptions = {}): Promise<Message> => {
-    await stop();
-    // Clear the spinner text unless the caller supplies its own content, or the
-    // last frame would stay above the final embed.
-    const body = payload.content === undefined ? { ...payload, content: "" } : payload;
-    return interaction.editReply(body);
-  };
-  return { finish, stop, frameCount: () => frame + 1 };
-}
-
 async function fetchTrelloCards(boardId: string, username: string, signal?: AbortSignal): Promise<JsonObject[]> {
   const cacheKey = `trello:${boardId}:${username.toLowerCase()}`;
   const cached = await getCached<JsonObject[]>(cacheKey, 600);
@@ -1389,8 +1215,8 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
   let aiAssessment: { chance: number; reason: string } | undefined;
   try {
     aiAssessment = await assessAltRisk({
-      baseUrl: gradingAiBaseUrl,
-      model: gradingAiModel,
+      baseUrl: altAiBaseUrl,
+      model: altAiModel,
       signal,
       signals: {
         account_age_days: created ? Math.max(0, Math.round((Date.now() - created.getTime()) / 86_400_000)) : null,
@@ -1542,8 +1368,6 @@ export const ACCESS_CONTROLLED_COMMANDS: ReadonlySet<string> = new Set([
   "groups",
   "records",
   "profile",
-  "test",
-  "grade",
   "api",
   "info",
   "changelog",
@@ -1729,8 +1553,6 @@ async function logInteractionAttempt(interaction: Interaction): Promise<void> {
       access = !tracking
         ? "expired"
         : tracking.requesterId === interaction.user.id && isInteractionAuthorized(interaction) ? "allowed" : "denied";
-    } else if (isGradeFeedbackId(interaction.customId)) {
-      access = isInteractionAuthorized(interaction) ? "allowed" : "denied";
     }
   } else if (interaction.isStringSelectMenu()) {
     action = `select:${interaction.customId}${interaction.values.length ? `:${interaction.values.join(",")}` : ""}`;
@@ -1739,18 +1561,9 @@ async function logInteractionAttempt(interaction: Interaction): Promise<void> {
     else if (interaction.customId.startsWith("admin-color-target") || interaction.customId.startsWith("admin-color-value:")) {
       access = isOwner(interaction.user.id) ? "allowed" : "denied";
     }
-    else if (interaction.customId.startsWith("grade-event:")) {
-      access = interaction.customId.slice("grade-event:".length) === interaction.user.id
-        && isInteractionAuthorized(interaction) ? "allowed" : "denied";
-    }
   } else if (interaction.isModalSubmit()) {
     action = `modal:${interaction.customId}`;
     if (interaction.customId.startsWith("admin-panel:")) access = isOwner(interaction.user.id) ? "allowed" : "denied";
-    else if (isGradeFeedbackId(interaction.customId)) access = isInteractionAuthorized(interaction) ? "allowed" : "denied";
-    else if (interaction.customId.startsWith("grade-report:")) {
-      access = interaction.customId.split(":")[2] === interaction.user.id
-        && isInteractionAuthorized(interaction) ? "allowed" : "denied";
-    }
   }
 
   const audit = { action, access, user: interaction.user.username, userId: interaction.user.id };
@@ -1773,254 +1586,6 @@ async function logInteractionAttempt(interaction: Interaction): Promise<void> {
         ?? (access === "denied" ? "No changes (access denied)." : "No settings changed."),
     } : {}),
   }));
-}
-
-const GRADE_EVENT_TYPES = ["VIP Training", "Guarding Evaluation", "Hosting Evaluation"] as const;
-type GradeEventType = typeof GRADE_EVENT_TYPES[number];
-const HOST_RATING_EVENT_TYPE = "Host Rating";
-const HOST_RATING_PASS_SCORE = 70;
-const HOST_POSITIVE_ANSI = "\u001b[38;2;64;222;64m";
-const HOST_NEGATIVE_ANSI = "\u001b[38;2;255;36;36m";
-
-function isGradeEventType(value: string | undefined): value is GradeEventType {
-  return GRADE_EVENT_TYPES.some((eventType) => eventType === value);
-}
-
-function isGradeFeedbackId(customId: string): boolean {
-  return customId === "grade-feedback" || customId.startsWith("grade-feedback:");
-}
-
-function gradeFeedbackEventType(customId: string): string {
-  return customId.startsWith("grade-feedback:") ? customId.slice("grade-feedback:".length) : "";
-}
-
-function gradeFeedbackSeverities(eventType: string): GradeSeverity[] {
-  return eventType === "Hosting Evaluation" || eventType === HOST_RATING_EVENT_TYPE
-    ? ["MINOR", "MODERATE", "MAJOR"]
-    : ["MINOR", "MODERATE", "MAJOR", "EXTREME"];
-}
-
-interface AssessedGrade {
-  assessment: GradeAssessment;
-  abbreviations: Set<string>;
-  grammarOverrides: Record<string, string>;
-}
-
-async function assessGrade(eventType: GradeEventType, mistakesText: string): Promise<AssessedGrade> {
-  const sheetRules = await fetchGradeSheetRules();
-  const raw = createGradeRules(sheetRules);
-  const abbreviations = gradingAbbreviations(sheetRules.map(({ mistake }) => mistake));
-  const savedOverrides = db.prepare("SELECT normalized_mistake, severity FROM grade_feedback").all() as Array<{ normalized_mistake: string; severity: string }>;
-  const humanOverrideKeys = new Set(savedOverrides.map(({ normalized_mistake }) => normalized_mistake));
-  const severityOverrides = Object.fromEntries(
-    savedOverrides.filter((item): item is { normalized_mistake: string; severity: GradeSeverity } =>
-      ["MINOR", "MODERATE", "MAJOR", "EXTREME"].includes(item.severity),
-    ).map((item) => [item.normalized_mistake, item.severity]),
-  );
-  Object.assign(severityOverrides, gradeSheetSeverityOverrides(sheetRules, eventType));
-
-  // The local model only fills gaps the deterministic matcher cannot resolve, and its
-  // rubric matches are verified against the sheet before they can affect the grade.
-  const grammarOverrides: Record<string, string> = {};
-  try {
-    const reviews = await reviewGradeSubmission({
-      eventType,
-      mistakesText,
-      sheetRules,
-      baseUrl: gradingAiBaseUrl,
-      model: gradingAiModel,
-    });
-    for (const review of reviews) {
-      const normalized = normalizeGradeText(review.original);
-      if (review.correctedText) grammarOverrides[normalized] = correctGradeMistakeGrammar(review.correctedText, abbreviations);
-      if (humanOverrideKeys.has(normalized)) continue;
-      if (mistakeMatchesSheetRule(review.original, sheetRules, eventType)) continue;
-      severityOverrides[normalized] = review.severity;
-    }
-  } catch (error) {
-    log("Local grading AI review unavailable; using deterministic grading.", error);
-  }
-
-  const assessment = eventType === "Hosting Evaluation"
-    ? calculateHostingGrade(mistakesText, raw, severityOverrides, grammarOverrides, abbreviations)
-    : calculateGrade(mistakesText, raw, severityOverrides, eventType, grammarOverrides, abbreviations);
-  return { assessment, abbreviations, grammarOverrides };
-}
-
-async function gradeReport(eventType: GradeEventType, evaluator: string, trainee: string, mistakesText: string): Promise<string> {
-  const { assessment } = await assessGrade(eventType, mistakesText);
-  const result = assessment.score >= gradePassThreshold(eventType) && !assessment.autoFail
-    ? "PASS"
-    : "FAIL";
-  const lines = [
-    `\`USERNAME:\` ${evaluator}`,
-    `\`EVENT TYPE:\` **${eventType.toUpperCase()}**`,
-    `\`${eventType === "Hosting Evaluation" ? "HOST" : eventType === "Guarding Evaluation" ? "INDUCTEE'S USERNAME" : "ATTENDEE'S USERNAME"}:\` ${trainee}`,
-    "`FEEDBACK:`",
-    ...formatGradeFeedback(assessment.classified),
-    "",
-    `\`GRADE:\` ${assessment.score}%`,
-    `\`PASS/FAIL:\` **${result}**`,
-  ];
-  if (eventType === "Guarding Evaluation") lines.push(`\`PING:\` ${result === "FAIL" ? "@Chief Training Manager" : "N/A"}`);
-  return lines.join("\n");
-}
-
-function hostRatingLines(text: string, limit = 40): string[] {
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.replace(/^\s*(?:\[\+\]|\[-\]|[-+•])\s*/, "").trim())
-    .filter(Boolean)
-    .slice(0, limit);
-}
-
-function formatHostFeedbackBlock(
-  lines: string[],
-  prefix: "[+]" | "[-]",
-  color: string,
-  abbreviations: Iterable<string>,
-  grammarOverrides: Record<string, string>,
-): string[] {
-  const block = ["```ansi"];
-  const entries = lines
-    .map((line) => line.replace(/^\s*(?:\[\+\]|\[-\]|[-+•])\s*/, "").trim())
-    .filter(Boolean);
-  if (!entries.length) {
-    block.push("(none recorded)");
-  } else {
-    block.push(color);
-    for (const line of entries) {
-      const normalized = normalizeGradeText(line);
-      const corrected = grammarOverrides[normalized] ?? correctGradeMistakeGrammar(line, abbreviations);
-      const safe = corrected
-        .replace(/[\u0000-\u001f\u007f]/g, "")
-        .replace(/`{3,}/g, "'''");
-      block.push(`${prefix} ${safe}`);
-    }
-    block[block.length - 1] += "\u001b[0m";
-  }
-  block.push("```");
-  return block;
-}
-
-function formatHostEventType(eventType: string, abbreviations: Iterable<string>): string {
-  const cleaned = eventType.replace(/\s+/g, " ").trim();
-  if (!cleaned) return "Unspecified";
-  return capitalizeGradeAbbreviations(cleaned, abbreviations)
-    .split(" ")
-    .map((word) => word ? word[0]!.toUpperCase() + word.slice(1) : word)
-    .join(" ");
-}
-
-export interface HostRatingReportInput {
-  evaluator: string;
-  host: string;
-  eventType: string;
-  positives: string[];
-  negatives: string[];
-  score: number;
-  passed: boolean;
-  abbreviations?: Iterable<string>;
-  grammarOverrides?: Record<string, string>;
-}
-
-export function formatHostRatingReport({
-  evaluator,
-  host,
-  eventType,
-  positives,
-  negatives,
-  score,
-  passed,
-  abbreviations = gradingAbbreviations(),
-  grammarOverrides = {},
-}: HostRatingReportInput): string {
-  const ratingValue = score / 10;
-  const rating = Number.isInteger(ratingValue) ? String(ratingValue) : ratingValue.toFixed(1);
-  return [
-    `**Your Username:** ${evaluator}`,
-    `**Host's Username:** ${host}`,
-    `**Event Type:** ${formatHostEventType(eventType, abbreviations)}`,
-    `**Rating: ${rating}/10 | ${passed ? "PASS" : "FAIL"}**`,
-    "**Positives:**",
-    ...formatHostFeedbackBlock(positives, "[+]", HOST_POSITIVE_ANSI, abbreviations, grammarOverrides),
-    "**Negatives:**",
-    ...formatHostFeedbackBlock(negatives, "[-]", HOST_NEGATIVE_ANSI, abbreviations, grammarOverrides),
-    "**Proof: **",
-  ].join("\n");
-}
-
-async function gradeHostRating(
-  evaluator: string,
-  host: string,
-  eventType: string,
-  positivesText: string,
-  negativesText: string,
-): Promise<string> {
-  const positives = hostRatingLines(positivesText);
-  const negatives = hostRatingLines(negativesText);
-  // Hosts are graded against the hosting rubric; positives are context and proof
-  // of good performance, while negatives drive the numeric rating.
-  const { assessment, abbreviations, grammarOverrides } = await assessGrade("Hosting Evaluation", negatives.join("\n"));
-  const passed = assessment.score >= HOST_RATING_PASS_SCORE && !assessment.autoFail;
-  return formatHostRatingReport({
-    evaluator,
-    host,
-    eventType,
-    positives,
-    negatives,
-    score: assessment.score,
-    passed,
-    abbreviations,
-    grammarOverrides,
-  });
-}
-
-async function reviewAndLogNewGradeMistakes(
-  eventType: GradeEventType,
-  mistakesText: string,
-  userId: string,
-): Promise<void> {
-  const mistakes = mistakesText
-    .split(/\r?\n/)
-    .map((line) => line.replace(/^\s*(?:\[-\]|\[\+\]|[-+•])\s*/, "").trim())
-    .filter(Boolean)
-    .slice(0, 40);
-  if (!mistakes.length) return;
-
-  const sheetRules = await fetchGradeSheetRules();
-  const savedCorrections = db.prepare("SELECT normalized_mistake FROM grade_feedback").all() as Array<{ normalized_mistake: string }>;
-  const suggestions = await suggestNewGradeMistakes({
-    eventType,
-    mistakes,
-    knownRules: [...sheetRules.map(({ mistake }) => mistake), ...savedCorrections.map(({ normalized_mistake }) => normalized_mistake)],
-    baseUrl: gradingAiBaseUrl,
-    model: gradingAiModel,
-  });
-  if (!suggestions.length) return;
-
-  const embed = new EmbedBuilder()
-    .setTitle("AI Grading Rule Candidates - Review Before Adding")
-    .setDescription(`The local **${gradingAiModel}** model found possible new rubric entries from a ${eventType} report. These are suggestions only and do not affect grades. Review severity and wording before adding them to the rubric.`)
-    .setColor(embedColor("AI Grading Rule Candidates - Review Before Adding"))
-    .addFields(
-      { name: "Evaluation", value: eventType, inline: true },
-      { name: "Submitted by", value: `<@${userId}> (${userId})`, inline: true },
-      ...suggestions.map((suggestion, index) => ({
-        name: `Suggestion ${index + 1} - ${suggestion.severity}`,
-        value: [
-          "Google Sheets entry (copy):",
-          "```",
-          `[-] ${suggestion.mistake} - ${suggestion.severity}`,
-          "```",
-          suggestion.reason ? `Why it may be new: ${suggestion.reason}` : "",
-        ].filter(Boolean).join("\n").slice(0, 1024),
-        inline: false,
-      })),
-    )
-    .setFooter({ text: footer() })
-    .setTimestamp(new Date());
-  await sendLogEmbed(embed);
 }
 
 async function replyDenied(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -2049,7 +1614,7 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, req
     await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] });
     return;
   }
-  const spinner = await startSpinner(interaction, "Running background check…");
+  await interaction.deferReply();
   const controller = new AbortController();
   const deadline = Date.now() + BACKGROUND_CHECK_TIMEOUT_MS;
   let deadlineExpired = false;
@@ -2070,7 +1635,7 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, req
     ]);
     if (outcome.kind === "timeout" || Date.now() >= deadline) {
       controller.abort();
-      await spinner.finish({
+      await interaction.editReply({
         embeds: [makeEmbed("Background Check Timed Out", "The background check took too long and was cancelled. Please try again.", "Warning")],
         files: [],
       });
@@ -2082,7 +1647,7 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, req
         .setLabel("Advanced Badge Tracking")
         .setStyle(ButtonStyle.Secondary),
     );
-    const message = await spinner.finish({
+    const message = await interaction.editReply({
       embeds: [outcome.result.embed],
       files: outcome.result.image ? [outcome.result.image] : [],
       components: [advancedButton],
@@ -2097,14 +1662,14 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, req
     });
   } catch (error) {
     if (deadlineExpired) {
-      await spinner.finish({
+      await interaction.editReply({
         embeds: [makeEmbed("Background Check Timed Out", "The background check took too long and was cancelled. Please try again.", "Warning")],
         files: [],
       });
       return;
     }
     log("Background check failed", error);
-    await spinner.finish({ embeds: [makeEmbed("Could Not Look Up User", errorText(error, "Something went wrong while processing this Roblox user. Please try again."), "Warning")] });
+    await interaction.editReply({ embeds: [makeEmbed("Could Not Look Up User", errorText(error, "Something went wrong while processing this Roblox user. Please try again."), "Warning")] });
   } finally {
     clearTimeout(timeout!);
   }
@@ -2123,7 +1688,7 @@ async function sendBadgeCount(interaction: ChatInputCommandInteraction, username
     await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] });
     return;
   }
-  const spinner = await startSpinner(interaction, "Loading badge count…");
+  await interaction.deferReply();
   const controller = new AbortController();
   let deadlineExpired = false;
   let timeout: ReturnType<typeof setTimeout>;
@@ -2140,21 +1705,21 @@ async function sendBadgeCount(interaction: ChatInputCommandInteraction, username
       timedOut,
     ]);
     if (outcome.kind === "timeout") {
-      await spinner.finish({ embeds: [makeEmbed("Badge Count Timed Out", "The badge count took too long and was cancelled. Please try again.", "Warning")], files: [] });
+      await interaction.editReply({ embeds: [makeEmbed("Badge Count Timed Out", "The badge count took too long and was cancelled. Please try again.", "Warning")], files: [] });
       return;
     }
-    await spinner.finish({
+    await interaction.editReply({
       embeds: [outcome.result.embed],
       files: outcome.result.image ? [outcome.result.image] : [],
       components: [],
     });
   } catch (error) {
     if (deadlineExpired) {
-      await spinner.finish({ embeds: [makeEmbed("Badge Count Timed Out", "The badge count took too long and was cancelled. Please try again.", "Warning")], files: [] });
+      await interaction.editReply({ embeds: [makeEmbed("Badge Count Timed Out", "The badge count took too long and was cancelled. Please try again.", "Warning")], files: [] });
       return;
     }
     log("Badge count failed", error);
-    await spinner.finish({
+    await interaction.editReply({
       embeds: [makeEmbed("Could Not Load Badge Count", errorText(error, "Something went wrong while loading badge history. Please try again."), "Warning")],
       components: [],
     });
@@ -2172,13 +1737,13 @@ async function sendGroups(interaction: ChatInputCommandInteraction, username: st
   let normalized: string;
   try { normalized = validateRobloxUsername(username); }
   catch (error) { await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] }); return; }
-  const spinner = await startSpinner(interaction, "Loading groups…");
+  await interaction.deferReply();
   try {
     const user = await resolveUser(normalized);
-    await spinner.finish({ embeds: [createGroupsEmbed(user.name, await fetchGroups(user.id))] });
+    await interaction.editReply({ embeds: [createGroupsEmbed(user.name, await fetchGroups(user.id))] });
   } catch (error) {
     log("Groups lookup failed", error);
-    await spinner.finish({ embeds: [makeEmbed("Could Not Load Groups", errorText(error, "Something went wrong while loading this user's CBRN groups. Please try again."), "Warning")] });
+    await interaction.editReply({ embeds: [makeEmbed("Could Not Load Groups", errorText(error, "Something went wrong while loading this user's CBRN groups. Please try again."), "Warning")] });
   }
 }
 
@@ -2191,12 +1756,12 @@ async function sendRecords(interaction: ChatInputCommandInteraction, username: s
   let normalized: string;
   try { normalized = validateRobloxUsername(username); }
   catch (error) { await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] }); return; }
-  const spinner = await startSpinner(interaction, "Loading records…");
+  await interaction.deferReply();
   try {
-    await spinner.finish({ embeds: [await recordsReport(normalized)] });
+    await interaction.editReply({ embeds: [await recordsReport(normalized)] });
   } catch (error) {
     log("Records lookup failed", error);
-    await spinner.finish({ embeds: [makeEmbed("Could Not Load Records", errorText(error, "Something went wrong while loading this user's records. Please try again."), "Warning")] });
+    await interaction.editReply({ embeds: [makeEmbed("Could Not Load Records", errorText(error, "Something went wrong while loading this user's records. Please try again."), "Warning")] });
   }
 }
 
@@ -2209,27 +1774,14 @@ async function sendProfileLink(interaction: ChatInputCommandInteraction, usernam
   let normalized: string;
   try { normalized = validateRobloxUsername(username); }
   catch (error) { await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] }); return; }
-  const spinner = await startSpinner(interaction, "Looking up profile…");
+  await interaction.deferReply();
   try {
     const user = await resolveUser(normalized);
-    await spinner.finish({ embeds: [createProfileLinkEmbed(user.name, user.id)] });
+    await interaction.editReply({ embeds: [createProfileLinkEmbed(user.name, user.id)] });
   } catch (error) {
     log("Profile link lookup failed", error);
-    await spinner.finish({ embeds: [makeEmbed("Could Not Load Profile", errorText(error, "Something went wrong while looking up this Roblox profile. Please try again."), "Warning")] });
+    await interaction.editReply({ embeds: [makeEmbed("Could Not Load Profile", errorText(error, "Something went wrong while looking up this Roblox profile. Please try again."), "Warning")] });
   }
-}
-
-export const SPINNER_TEST_FRAMES = 8;
-
-async function sendSpinnerTest(interaction: ChatInputCommandInteraction): Promise<void> {
-  if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
-  const started = Date.now();
-  const spinner = await startSpinner(interaction, "Spinner test running…");
-  // Let the background animation draw a full rotation, then stop it and report.
-  await delay(SPINNER_INTERVAL_MS * (SPINNER_TEST_FRAMES - 1));
-  const frames = spinner.frameCount();
-  const seconds = ((Date.now() - started) / 1000).toFixed(1);
-  await spinner.finish({ content: `✅ Spinner test complete — ${frames} frames in ${seconds}s.` });
 }
 
 function configureCommand<T extends SlashCommandBuilder | SlashCommandOptionsOnlyBuilder | SlashCommandSubcommandsOnlyBuilder>(command: T): T {
@@ -2378,7 +1930,6 @@ export const commands = [
         .setName("username")
         .setDescription("The Roblox username to check")
         .setRequired(true))),
-  new SlashCommandBuilder().setName("grade").setDescription("Create an evaluation or Host Rating report."),
   new SlashCommandBuilder().setName("api").setDescription("Check every connected API and service status."),
   new SlashCommandBuilder()
     .setName("groups")
@@ -2413,9 +1964,6 @@ export const commands = [
       .setName("query")
       .setDescription("A Discord or Roblox username, Discord user ID, or interaction ID")
       .setRequired(true)),
-  new SlashCommandBuilder()
-    .setName("test")
-    .setDescription("Run a short spinning animation to check it works."),
   new SlashCommandBuilder().setName("admin").setDescription("Open the bot owner admin panel."),
 ].map(configureCommand);
 
@@ -2443,29 +1991,11 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
   if (name === "groups") return sendGroups(interaction, interaction.options.getString("username", true));
   if (name === "records") return sendRecords(interaction, interaction.options.getString("username", true));
   if (name === "profile") return sendProfileLink(interaction, interaction.options.getString("username", true));
-  if (name === "test") return sendSpinnerTest(interaction);
   if (name === "api") return sendApiStatus(interaction);
   if (name === "changelog") {
     if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
     const pagination = buildPagination(await loadChangelogEmbed());
     await interaction.reply({ embeds: pagination.embeds, components: pagination.components });
-    return;
-  }
-  if (name === "grade") {
-    if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
-    const menu = new StringSelectMenuBuilder()
-      .setCustomId(`grade-event:${interaction.user.id}`)
-      .setPlaceholder("Choose an evaluation type")
-      .addOptions(
-        { label: "VIP Training", value: "VIP Training", description: "Evaluate a VIP training session." },
-        { label: "Guarding Evaluation", value: "Guarding Evaluation", description: "Evaluate a guarding shift." },
-        { label: "Hosting Evaluation", value: "Hosting Evaluation", description: "Evaluate an event host." },
-        { label: "Host Rating", value: HOST_RATING_EVENT_TYPE, description: "Rate a host's event with positives, negatives, and a score out of 10." },
-      );
-    await interaction.reply({
-      embeds: [makeEmbed("Create Grade Report", "Choose an evaluation type, then fill in the requested details.", "Info")],
-      components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)],
-    });
     return;
   }
   if (name === "admin") {
@@ -2479,7 +2009,6 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
     const stats = db.prepare("SELECT (SELECT COUNT(*) FROM authorized_users) AS users, (SELECT COUNT(*) FROM authorized_roles) AS roles").get() as JsonObject;
     let robloxOnline = false;
     try { robloxOnline = (await requestJson(`${ROBLOX_USERS}/users/1`)).ok; } catch {}
-    const ollama = await checkOllama();
     const guilds = client.guilds.cache;
     const pagination = buildPagination(createInfoEmbed({
       pingMs: Math.round(client.ws.ping),
@@ -2494,7 +2023,6 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
       robloxOnline,
       robloxCloud: Boolean(robloxApiKey),
       xtracker: Boolean(xtrackerApiKey),
-      ollama,
       dailyUsage: isOwner(interaction.user.id) ? null : dailyCommandUsage(interaction.user.id),
     }));
     await interaction.reply({ embeds: pagination.embeds, components: pagination.components });
@@ -2513,7 +2041,7 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
       return;
     }
 
-    const spinner = await startSpinner(interaction, "Searching logs…");
+    await interaction.deferReply();
     const terms = new Set<string>([query]);
     const { messages, scanned, complete } = await findInteractionLogs([...terms]);
     const termList = [...terms];
@@ -2521,7 +2049,7 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
       const scope = complete
         ? `No matching log entries were found for **${query}** across ${scanned.toLocaleString("en-US")} scanned log messages.`
         : `No matching log entries were found for **${query}** in the latest ${scanned.toLocaleString("en-US")} log messages (search limit reached).`;
-      await spinner.finish({
+      await interaction.editReply({
         embeds: [makeEmbed("No Interactions Found", scope, "Warning")],
       });
       return;
@@ -2540,7 +2068,7 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
       };
     });
     const pagination = buildPaginationFromPages(createSearchResultEmbeds(query, results, scanned, complete));
-    await spinner.finish({ embeds: pagination.embeds, components: pagination.components });
+    await interaction.editReply({ embeds: pagination.embeds, components: pagination.components });
   }
 }
 
@@ -2675,12 +2203,6 @@ function apiStateIcon(state: ApiState): string {
   return "🟡";
 }
 
-function apiCheckSummary(check: ApiCheck): string {
-  const detail = check.detail ? ` — ${check.detail}` : "";
-  const latency = check.latencyMs !== undefined ? `\n${check.latencyMs}ms` : "";
-  return `${check.state}${detail}${latency}`;
-}
-
 function errorDetail(error: unknown): string {
   if (error instanceof Error && error.name === "TimeoutError") return "Timed out";
   return "Unreachable";
@@ -2718,47 +2240,9 @@ function checkDiscordGateway(): ApiCheck {
   };
 }
 
-async function checkGradeSheet(): Promise<ApiCheck> {
-  const start = Date.now();
-  try {
-    const rules = await fetchGradeSheetRules();
-    return { name: "Google Sheets Rubric", state: "Online", detail: `${rules.length} rules`, latencyMs: Date.now() - start };
-  } catch (error) {
-    return {
-      name: "Google Sheets Rubric",
-      state: "Offline",
-      detail: error instanceof Error ? error.message.slice(0, 120) : "Could not load the CSV",
-      latencyMs: Date.now() - start,
-    };
-  }
-}
-
-async function checkOllama(): Promise<ApiCheck> {
-  const name = "Ollama (grading AI)";
-  const start = Date.now();
-  try {
-    const response = await fetch(new URL("/api/tags", gradingAiBaseUrl), { signal: AbortSignal.timeout(API_CHECK_TIMEOUT_MS) });
-    const latencyMs = Date.now() - start;
-    if (!response.ok) return { name, state: "Degraded", detail: `HTTP ${response.status}`, latencyMs };
-    const payload = await response.json() as { models?: Array<{ name?: string }> };
-    const models = (payload.models ?? []).map((model) => model.name ?? "");
-    const pulled = models.some((model) => model === gradingAiModel
-      || model === `${gradingAiModel}:latest`
-      || model.startsWith(`${gradingAiModel}:`));
-    return {
-      name,
-      state: pulled ? "Online" : "Degraded",
-      detail: pulled ? gradingAiModel : `${gradingAiModel} is not pulled`,
-      latencyMs,
-    };
-  } catch (error) {
-    return { name, state: "Offline", detail: errorDetail(error), latencyMs: Date.now() - start };
-  }
-}
-
 async function sendApiStatus(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
-  const spinner = await startSpinner(interaction, "Checking every service…");
+  await interaction.deferReply();
 
   const checks = await Promise.all([
     checkDiscordGateway(),
@@ -2777,12 +2261,10 @@ async function sendApiStatus(interaction: ChatInputCommandInteraction): Promise<
       xtrackerApiKey ? { headers: { authorization: `Bearer ${xtrackerApiKey.replace(/^Bearer\s+/i, "")}` } } : {},
       { configured: Boolean(xtrackerApiKey), onlineStatuses: [404] },
     ),
-    checkGradeSheet(),
-    checkOllama(),
   ]);
 
   const pagination = buildPagination(createApiStatusEmbed(checks));
-  await spinner.finish({ embeds: pagination.embeds, components: pagination.components });
+  await interaction.editReply({ embeds: pagination.embeds, components: pagination.components });
 }
 
 export function createApiStatusEmbed(checks: ApiCheck[]): EmbedBuilder {
@@ -2818,13 +2300,12 @@ export const DATA_VIEW_LABELS: Record<DataView, string> = {
 const DATA_VIEW_DESCRIPTIONS: Record<DataView, string> = {
   overview: "High-level bot, server, and usage totals.",
   access: "Authorized users, roles, and command usage.",
-  bot: "Bot build, API health, and Ollama status.",
+  bot: "Bot build and API health.",
   colors: "Current embed and chart color settings.",
 };
 
 export interface DataStatus {
   robloxApiOnline?: boolean;
-  ollama?: ApiCheck;
 }
 
 export function createDataViewMenu(selected: DataView = "overview"): ActionRowBuilder<StringSelectMenuBuilder> {
@@ -2847,7 +2328,7 @@ export async function collectDataStatus(): Promise<DataStatus> {
   } catch (error) {
     log("Roblox API status check failed while building /data", error);
   }
-  return { robloxApiOnline, ollama: await checkOllama() };
+  return { robloxApiOnline };
 }
 
 export function createDataEmbed(view: DataView = "overview", status: DataStatus = {}): EmbedBuilder {
@@ -2877,10 +2358,6 @@ function authorizedRoleLines(): string[] {
   });
 }
 
-function savedGradingCorrectionCount(): number {
-  return (db.prepare("SELECT COUNT(*) AS count FROM grade_feedback").get() as { count: number }).count;
-}
-
 function createDataOverviewEmbed(): EmbedBuilder {
   const users = authorizedUserLines();
   const roles = authorizedRoleLines();
@@ -2895,7 +2372,6 @@ function createDataOverviewEmbed(): EmbedBuilder {
   ).addFields(
     { name: "Authorized Users", value: String(users.length), inline: true },
     { name: "Authorized Roles", value: String(roles.length), inline: true },
-    { name: "Saved Grading Corrections", value: String(savedGradingCorrectionCount()), inline: true },
     { name: "Servers", value: String(client.guilds.cache.size), inline: true },
   );
 }
@@ -2913,7 +2389,6 @@ function createDataAccessEmbed(): EmbedBuilder {
       value: [
         `Authorized users: ${users.length}`,
         `Authorized roles: ${roles.length}`,
-        `Saved grading corrections: ${savedGradingCorrectionCount()}`,
         `Active badge results: ${badgeTrackingByMessage.size}`,
       ].join("\n"),
       inline: false,
@@ -2958,8 +2433,6 @@ function createDataBotEmbed(status: DataStatus): EmbedBuilder {
         `Roblox Public API: ${status.robloxApiOnline ? "Online" : "Unavailable"}`,
         `Roblox Open Cloud: ${robloxApiKey ? "Configured" : "Not configured"}`,
         `[x]Tracker: ${xtrackerApiKey ? "Configured" : "Not configured"}`,
-        `Ollama (grading AI): ${status.ollama ? apiCheckSummary(status.ollama) : "Not checked"}`,
-        `Grading AI model: ${gradingAiModel}`,
       ].join("\n"),
       inline: true,
     },
@@ -3004,7 +2477,6 @@ export interface InfoSnapshot {
   robloxOnline: boolean;
   robloxCloud: boolean;
   xtracker: boolean;
-  ollama: ApiCheck;
   /** Null for the owner, who is exempt from the daily command limit. */
   dailyUsage: DailyCommandUsage | null;
 }
@@ -3034,7 +2506,6 @@ export function createInfoEmbed(info: InfoSnapshot): EmbedBuilder {
     { name: "Roblox Public API", value: info.robloxOnline ? "OK" : "N/A", inline: true },
     { name: "Roblox Open Cloud Key", value: info.robloxCloud ? "OK" : "N/A", inline: true },
     { name: "[x]Tracker API", value: info.xtracker ? "OK" : "N/A", inline: true },
-    { name: "Ollama (grading AI)", value: apiCheckSummary(info.ollama), inline: true },
   );
 }
 
@@ -3076,33 +2547,6 @@ client.on("interactionCreate", async (interaction) => {
         embeds: [session.pages[page]!],
         components: [paginationRow(token!, page, session.pages.length) as PaginationRow, ...session.extraRows],
       });
-    } else if (interaction.isButton() && isGradeFeedbackId(interaction.customId)) {
-      if (!isInteractionAuthorized(interaction)) {
-        await interaction.reply({ embeds: [deniedEmbed("Only authorized graders can submit grading feedback.")] });
-        return;
-      }
-      const eventType = gradeFeedbackEventType(interaction.customId);
-      const severities = gradeFeedbackSeverities(eventType);
-      const modal = new ModalBuilder()
-        .setCustomId(eventType ? `grade-feedback:${eventType}` : "grade-feedback")
-        .setTitle("Grade Feedback");
-      const mistake = new TextInputBuilder()
-        .setCustomId("mistake")
-        .setLabel("Mistake text to correct")
-        .setStyle(TextInputStyle.Paragraph)
-        .setRequired(true)
-        .setMaxLength(300);
-      const severity = new TextInputBuilder()
-        .setCustomId("severity")
-        .setLabel(`Severity: ${severities.join(", ")}`)
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true)
-        .setMaxLength(8);
-      modal.addComponents(
-        new ActionRowBuilder<TextInputBuilder>().addComponents(mistake),
-        new ActionRowBuilder<TextInputBuilder>().addComponents(severity),
-      );
-      await interaction.showModal(modal);
     } else if (interaction.isStringSelectMenu() && interaction.customId === "admin-panel") {
       if (!isOwner(interaction.user.id)) {
         await interaction.reply({ embeds: [deniedEmbed()] });
@@ -3189,95 +2633,6 @@ client.on("interactionCreate", async (interaction) => {
         embeds: pagination.embeds,
         components: pagination.components,
       });
-    } else if (interaction.isStringSelectMenu() && interaction.customId.startsWith("grade-event:")) {
-      const ownerId = interaction.customId.slice("grade-event:".length);
-      if (interaction.user.id !== ownerId || !isInteractionAuthorized(interaction)) {
-        await interaction.reply({ embeds: [deniedEmbed("Only the authorized person who started `/grade` can choose its evaluation type.")] });
-        return;
-      }
-      const eventType = interaction.values[0];
-      const isHostRating = eventType === HOST_RATING_EVENT_TYPE;
-      if (!isHostRating && !isGradeEventType(eventType)) {
-        await interaction.reply({ embeds: [makeEmbed("Invalid Evaluation Type", "Choose a valid evaluation type.", "Warning")] });
-        return;
-      }
-      const modal = new ModalBuilder()
-        .setCustomId(`grade-report:${eventType}:${ownerId}`)
-        .setTitle(isHostRating ? "Host Rating" : `${eventType} Grade`);
-      const evaluatorRow = new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder()
-          .setCustomId("evaluator")
-          .setLabel("Your Roblox username")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true)
-          .setValue("Guru_Guru1X")
-          .setMaxLength(20),
-      );
-      if (isHostRating) {
-        modal.addComponents(
-          evaluatorRow,
-          new ActionRowBuilder<TextInputBuilder>().addComponents(
-            new TextInputBuilder()
-              .setCustomId("host")
-              .setLabel("Host's Roblox username")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(true)
-              .setMaxLength(20),
-          ),
-          new ActionRowBuilder<TextInputBuilder>().addComponents(
-            new TextInputBuilder()
-              .setCustomId("eventType")
-              .setLabel("Event type")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(true)
-              .setMaxLength(100)
-              .setPlaceholder("e.g. VIP Training"),
-          ),
-          new ActionRowBuilder<TextInputBuilder>().addComponents(
-            new TextInputBuilder()
-              .setCustomId("positives")
-              .setLabel("Positives (one per line)")
-              .setStyle(TextInputStyle.Paragraph)
-              .setRequired(false)
-              .setMaxLength(2000)
-              .setPlaceholder("[+] Enter each positive on a new line"),
-          ),
-          new ActionRowBuilder<TextInputBuilder>().addComponents(
-            new TextInputBuilder()
-              .setCustomId("negatives")
-              .setLabel("Negatives (one per line)")
-              .setStyle(TextInputStyle.Paragraph)
-              .setRequired(false)
-              .setMaxLength(2000)
-              .setPlaceholder("[-] Enter each negative on a new line"),
-          ),
-        );
-      } else {
-        const traineeLabel = eventType === "Guarding Evaluation"
-          ? "Inductee's username"
-          : eventType === "Hosting Evaluation" ? "Host's username" : "Attendee's username";
-        modal.addComponents(
-          evaluatorRow,
-          new ActionRowBuilder<TextInputBuilder>().addComponents(
-            new TextInputBuilder()
-              .setCustomId("trainee")
-              .setLabel(traineeLabel)
-              .setStyle(TextInputStyle.Short)
-              .setRequired(true)
-              .setMaxLength(20),
-          ),
-          new ActionRowBuilder<TextInputBuilder>().addComponents(
-            new TextInputBuilder()
-              .setCustomId("mistakes")
-              .setLabel("Mistakes (one per line)")
-              .setStyle(TextInputStyle.Paragraph)
-              .setRequired(false)
-              .setMaxLength(4000)
-              .setPlaceholder("Enter each mistake on a new line"),
-          ),
-        );
-      }
-      await interaction.showModal(modal);
     } else if (interaction.isModalSubmit() && interaction.customId.startsWith("admin-panel:")) {
       if (!isOwner(interaction.user.id)) {
         await interaction.reply({ embeds: [deniedEmbed()] });
@@ -3330,139 +2685,14 @@ client.on("interactionCreate", async (interaction) => {
           "Success",
         )],
       });
-    } else if (interaction.isModalSubmit() && isGradeFeedbackId(interaction.customId)) {
-      if (!isInteractionAuthorized(interaction)) {
-        await interaction.reply({ embeds: [deniedEmbed("Only authorized graders can submit grading feedback.")] });
-        return;
-      }
-      const eventType = gradeFeedbackEventType(interaction.customId);
-      const allowedSeverities = gradeFeedbackSeverities(eventType);
-      const mistake = interaction.fields.getTextInputValue("mistake").trim();
-      const normalizedMistake = normalizeGradeText(mistake);
-      const severity = interaction.fields.getTextInputValue("severity").trim().toUpperCase();
-      if (!normalizedMistake || !allowedSeverities.includes(severity as GradeSeverity)) {
-        await interaction.reply({ embeds: [makeEmbed("Invalid Feedback", `Enter mistake text and a severity of ${allowedSeverities.join(", ")}.`, "Warning")] });
-        return;
-      }
-      const spinner = await startSpinner(interaction, "Saving grading feedback…");
-      db.prepare(`
-        INSERT INTO grade_feedback (normalized_mistake, severity, updated_by)
-        VALUES (?, ?, ?)
-        ON CONFLICT(normalized_mistake) DO UPDATE SET
-          severity = excluded.severity, updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP
-      `).run(normalizedMistake, severity, interaction.user.id);
-      let logSent = true;
-      try {
-        await sendGradingFeedbackLog(createGradingFeedbackLogEmbed({
-          mistake,
-          severity: severity as GradeSeverity,
-          userId: interaction.user.id,
-          username: interaction.user.username,
-        }), OWNER_ID);
-      } catch (error) {
-        logSent = false;
-        log("Grading feedback could not be sent to the grading feedback channel", error);
-      }
-      await spinner.finish({
-        embeds: [makeEmbed(
-          "Grading Feedback Saved",
-          `Future matching feedback will be graded as **${severity}**. ${logSent ? `A sheet-ready copy was posted in <#${GRADING_FEEDBACK_CHANNEL_ID}>.` : "The feedback log could not be posted."}`,
-          "Success",
-        )],
-      });
-    } else if (interaction.isModalSubmit() && interaction.customId.startsWith("grade-report:")) {
-      const [, eventTypeValue, ownerId] = interaction.customId.split(":");
-      if (interaction.user.id !== ownerId || !isInteractionAuthorized(interaction)) {
-        await interaction.reply({ embeds: [deniedEmbed("Only the authorized person who started `/grade` can submit this report.")] });
-        return;
-      }
-      const standardEventType = isGradeEventType(eventTypeValue) ? eventTypeValue : undefined;
-      const isHostRating = eventTypeValue === HOST_RATING_EVENT_TYPE;
-      if (!isHostRating && !standardEventType) {
-        await interaction.reply({ embeds: [makeEmbed("Invalid Evaluation Type", "This evaluation type is invalid. Run `/grade` again.", "Warning")] });
-        return;
-      }
-
-      const evaluator = interaction.fields.getTextInputValue("evaluator").trim();
-      let trainee = "";
-      let mistakesText = "";
-      let host = "";
-      let hostEventType = "";
-      let positives = "";
-      let negatives = "";
-      if (isHostRating) {
-        host = interaction.fields.getTextInputValue("host").trim();
-        hostEventType = interaction.fields.getTextInputValue("eventType").trim();
-        positives = interaction.fields.getTextInputValue("positives");
-        negatives = interaction.fields.getTextInputValue("negatives");
-        if (!evaluator || !host || !hostEventType) {
-          await interaction.reply({ embeds: [makeEmbed("Missing Usernames", "Enter your username, the host's username, and the event type before submitting the report.", "Warning")] });
-          return;
-        }
-        if (!positives.trim() && !negatives.trim()) {
-          await interaction.reply({ embeds: [makeEmbed("Invalid Feedback", "Enter at least one positive or negative for the host rating.", "Warning")] });
-          return;
-        }
-      } else {
-        trainee = interaction.fields.getTextInputValue("trainee").trim();
-        mistakesText = interaction.fields.getTextInputValue("mistakes");
-        if (!evaluator || !trainee) {
-          await interaction.reply({ embeds: [makeEmbed("Missing Usernames", "Enter both Roblox usernames before submitting the report.", "Warning")] });
-          return;
-        }
-      }
-
-      const spinner = await startSpinner(interaction, "Grading report…");
-
-      let report: string;
-      try {
-        report = isHostRating
-          ? await gradeHostRating(evaluator, host, hostEventType, positives, negatives)
-          : await gradeReport(standardEventType!, evaluator, trainee, mistakesText);
-      } catch (error) {
-        log("Grading rules could not be loaded", error);
-        await spinner.finish({
-          embeds: [makeEmbed("Grading Rules Unavailable", "The grading rules could not be loaded. Please contact the bot owner.", "Error")],
-        });
-        return;
-      }
-      if (report.length > 2000) {
-        await spinner.finish({ embeds: [makeEmbed("Report Too Long", "This report is too long to send as one message. Shorten the feedback and try again.", "Warning")] });
-        return;
-      }
-
-      const fail = report.includes("**FAIL**");
-      const role = standardEventType === "Guarding Evaluation" && fail
-        ? interaction.guild?.roles.cache.find((candidate) => candidate.name.toLowerCase() === "chief training manager")
-        : undefined;
-      const content = role ? report.replace("@Chief Training Manager", role.toString()) : report;
-      await spinner.finish({
-        content,
-        components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`grade-feedback:${standardEventType ?? HOST_RATING_EVENT_TYPE}`)
-            .setLabel("Feedback")
-            .setStyle(ButtonStyle.Secondary),
-        )],
-        allowedMentions: role ? { roles: [role.id], users: [], parse: [] } : { parse: [] },
-      });
-      if (standardEventType === "Guarding Evaluation" && fail && !role && interaction.inGuild()) {
-        await interaction.followUp({
-          embeds: [makeEmbed("Role Not Found", "The report was posted, but this server has no `Chief Training Manager` role to mention.", "Warning")],
-        });
-      }
-      void reviewAndLogNewGradeMistakes(
-        standardEventType ?? "Hosting Evaluation",
-        isHostRating ? negatives : mistakesText,
-        interaction.user.id,
-      ).catch((error) => log("Local grading AI suggestion review failed; the grade report was still sent.", error));
     }
   } catch (error) {
     log("Interaction handler failed", error);
     const message = errorText(error, "Something went wrong.");
     if (interaction.isRepliable()) {
       const payload = { embeds: [makeEmbed("Command Error", message.slice(0, 1500), "Error")] };
-      if (interaction.deferred || interaction.replied) await interaction.followUp(payload).catch(() => undefined);
+      if (interaction.deferred && !interaction.replied) await interaction.editReply(payload).catch(() => undefined);
+      else if (interaction.replied) await interaction.followUp(payload).catch(() => undefined);
       else await interaction.reply(payload).catch(() => undefined);
     }
   } finally {

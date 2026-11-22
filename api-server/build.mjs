@@ -33,10 +33,7 @@ async function buildAll() {
     entryPoints: {
       index: path.resolve(artifactDir, "src/index.ts"),
       bot: path.resolve(artifactDir, "src/bot.ts"),
-      "bot-grade": path.resolve(artifactDir, "src/bot-grade.ts"),
-      "bot-grade-ai": path.resolve(artifactDir, "src/bot-grade-ai.ts"),
       "bot-alt-ai": path.resolve(artifactDir, "src/bot-alt-ai.ts"),
-      "grade-sheet": path.resolve(artifactDir, "src/grade-sheet.ts"),
     },
     platform: "node",
     banner: {

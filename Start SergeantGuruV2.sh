@@ -96,7 +96,7 @@ echo "Checking Ollama (optional)..."
 if ollama_up; then
     echo "Ollama is ready."
     echo
-    echo "Loading the local grading model..."
+    echo "Loading the local Alt Risk model..."
     curl -s --max-time 60 -o /dev/null \
         "$OLLAMA_URL/api/generate" \
         -d "{\"model\":\"$OLLAMA_MODEL\",\"prompt\":\"hello\",\"stream\":false}"
@@ -111,8 +111,7 @@ elif command -v ollama >/dev/null 2>&1; then
         OLLAMA_WAIT=$((OLLAMA_WAIT + 1))
         if [ "$OLLAMA_WAIT" -ge 15 ]; then
             echo "Ollama did not respond in time, so it will be skipped."
-            echo "Continuing without AI review. Grading uses the deterministic rubric,"
-            echo "and Alt Risk uses the rule-based score."
+            echo "Continuing without AI review. Alt Risk uses the rule-based score."
             break
         fi
     done
@@ -120,15 +119,14 @@ elif command -v ollama >/dev/null 2>&1; then
     if ollama_up; then
         echo "Ollama is ready."
         echo
-        echo "Loading the local grading model..."
+        echo "Loading the local Alt Risk model..."
         curl -s --max-time 60 -o /dev/null \
             "$OLLAMA_URL/api/generate" \
             -d "{\"model\":\"$OLLAMA_MODEL\",\"prompt\":\"hello\",\"stream\":false}"
     fi
 else
     echo "Ollama is not installed."
-    echo "Continuing without AI review. Grading uses the deterministic rubric,"
-    echo "and Alt Risk uses the rule-based score."
+    echo "Continuing without AI review. Alt Risk uses the rule-based score."
     echo "  To enable it later:  sudo pacman -S --needed ollama"
     echo "                       sudo systemctl enable --now ollama"
     echo "                       ollama pull $OLLAMA_MODEL"

@@ -44,15 +44,15 @@ exFAT cannot store symlinks, which shapes several settings:
 cd api-server
 node ../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit   # typecheck
 node build.mjs                                                     # bundle
-node --test bot/bot.test.mjs bot/grade.test.mjs                    # tests
+node --test bot/bot.test.mjs                                      # tests
 ```
 
-All tests must pass. The AI paths (`/grade` review, grade suggestions, Alt Risk)
-must be checked against the live local Ollama when they change.
+All tests must pass. The AI path (Alt Risk) must be checked against the live
+local Ollama when it changes.
 
 ## Local AI model
 
 `OLLAMA_MODEL` defaults to `qwen2.5:1.5b`. Use a non-thinking instruct model:
 reasoning models such as `qwen3:4b` consume the entire response budget on
-reasoning and return no usable JSON. AI features are optional; without Ollama
-the bot falls back to the deterministic rubric and the rule-based Alt Risk score.
+reasoning and return no usable JSON. The AI feature is optional; without Ollama
+the bot falls back to the rule-based Alt Risk score.

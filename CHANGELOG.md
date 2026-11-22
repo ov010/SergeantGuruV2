@@ -1,5 +1,10 @@
 # Change Log
 
+## 2.10.0 - 2026-11-22
+- Removed `/grade`: the evaluation and Host Rating menus, grade reports, the Google Sheets rubric engine, and the grading feedback channel are gone.
+- Restored Discord's native "bot is thinking" state: waiting commands defer their reply instead of editing a custom spinner, and `/test` is removed with it.
+- `/api`, `/info`, and `/data` no longer report Ollama or a grading model; Alt Risk still uses the local model when it is available and falls back to the rule-based score otherwise.
+
 ## 2.9.2 - 2026-11-22
 - The start script now uses `--env-file-if-exists`, so the bot can run on a host that injects environment variables and has no `.env` file, while a local checkout still reads its `.env`.
 - `esbuild`, `esbuild-plugin-pino`, and `pino-pretty` are now runtime dependencies, so hosts that install production dependencies only can still bundle `dist/` before starting.

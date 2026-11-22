@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 import { ApplicationIntegrationType, EmbedBuilder, InteractionContextType } from "discord.js";
 
@@ -32,14 +31,8 @@ const {
   createDataEmbed,
   createDataViewMenu,
   createInfoEmbed,
-  createGradingFeedbackLogEmbed,
   createGroupsEmbed,
   createProfileLinkEmbed,
-  startSpinner,
-  SPINNER_INTERVAL_MS,
-  SPINNER_TEST_FRAMES,
-  spinnerContent,
-  spinnerFrame,
   createRecordsEmbed,
   createInteractionLogEmbed,
   createSearchResultEmbeds,
@@ -51,7 +44,6 @@ const {
   DATA_VIEW_LABELS,
   PAGE_LINE_LIMIT,
   buildPagination,
-  formatHostRatingReport,
   interactionLogLocations,
   makeBadgeChart,
   formatChartCount,
@@ -59,14 +51,13 @@ const {
   paginateEmbed,
   runWithInteractionId,
 } = await import("../dist/bot.mjs");
-const { parseGradeMistakeSuggestions, parseGradeReview, suggestNewGradeMistakes } = await import("../dist/bot-grade-ai.mjs");
 const { assessAltRisk, parseAltAssessment } = await import("../dist/bot-alt-ai.mjs");
 
 test("registers only the retained commands", () => {
   const registered = commands.map((command) => command.toJSON());
   assert.deepEqual(
     registered.map(({ name }) => name),
-    ["background", "badge", "grade", "api", "groups", "records", "profile", "info", "changelog", "data", "search", "test", "admin"],
+    ["background", "badge", "api", "groups", "records", "profile", "info", "changelog", "data", "search", "admin"],
   );
   assert.equal(registered.find(({ name }) => name === "admin").options?.length ?? 0, 0);
   assert.equal(registered.find(({ name }) => name === "badge").options[0].name, "count");
@@ -89,67 +80,6 @@ test("/profile returns only the Roblox profile link", () => {
   assert.equal(embed.url, "https://www.roblox.com/users/123456789/profile");
   assert.equal(embed.description, "https://www.roblox.com/users/123456789/profile");
   assert.equal(embed.fields, undefined, "/profile must not add badges, groups, or records");
-});
-
-test("spinner cycles / – \\ | and turns one message into an animation", async () => {
-  assert.deepEqual([0, 1, 2, 3, 4, 7, -1].map(spinnerFrame), ["/", "–", "\\", "|", "/", "|", "|"]);
-  assert.equal(spinnerContent(2, "Working"), "\\ Working");
-  assert.equal(SPINNER_INTERVAL_MS, 600, "the spinner is faster than the old 800 ms");
-  assert.equal(SPINNER_TEST_FRAMES, 8);
-
-  const replies = [];
-  const edits = [];
-  const interaction = {
-    reply: async (payload) => { replies.push(payload); },
-    editReply: async (payload) => { edits.push(payload); return { id: "spinner-message" }; },
-  };
-
-  const spinner = await startSpinner(interaction, "Working", { intervalMs: 5 });
-  assert.equal(replies.length, 1, "the first frame replaces Discord's thinking state");
-  assert.equal(replies[0].content, "/ Working");
-  assert.deepEqual(replies[0].allowedMentions, { parse: [] });
-
-  await delay(40);
-  await spinner.stop();
-  assert.ok(edits.length >= 2, "the animation keeps editing while the request runs");
-  assert.deepEqual(
-    edits.map(({ content }) => content),
-    edits.map((_, index) => spinnerContent(index + 1, "Working")),
-  );
-  const drawn = spinner.frameCount();
-  assert.equal(drawn, edits.length + 1, "frameCount includes the first frame");
-
-  await delay(30);
-  assert.equal(spinner.frameCount(), drawn, "stop() ends the animation");
-  assert.equal(edits.length, drawn - 1, "no frame may land after stop()");
-});
-
-test("finish clears the spinner text and ends the animation before the final embed", async () => {
-  const edits = [];
-  const interaction = {
-    reply: async () => undefined,
-    editReply: async (payload) => { edits.push(payload); return { id: "final-message" }; },
-  };
-
-  const spinner = await startSpinner(interaction, "Working", { intervalMs: 5 });
-  await delay(20);
-  const message = await spinner.finish({ embeds: [{ title: "Done" }] });
-  assert.equal(message.id, "final-message");
-  assert.deepEqual(edits.at(-1), { embeds: [{ title: "Done" }], content: "" });
-
-  const count = edits.length;
-  await delay(20);
-  assert.equal(edits.length, count, "finish() must stop the animation");
-
-  // Callers that render their own content (like the grade report) keep it.
-  const otherEdits = [];
-  const other = {
-    reply: async () => undefined,
-    editReply: async (payload) => { otherEdits.push(payload); return { id: "x" }; },
-  };
-  const second = await startSpinner(other, "Test", { intervalMs: 5 });
-  await second.finish({ content: "✅ Spinner test complete" });
-  assert.deepEqual(otherEdits.at(-1), { content: "✅ Spinner test complete" });
 });
 
 test("changelog parses newest-first releases, CRLF bullets, and ignores malformed sections", () => {
@@ -230,7 +160,6 @@ test("/info lists full command names including subcommands", () => {
   assert.ok(lines.some((line) => line.startsWith("• **/background check**")));
   assert.ok(lines.some((line) => line.startsWith("• **/badge count**")));
   assert.ok(lines.some((line) => line.startsWith("• **/records**")));
-  assert.ok(lines.some((line) => line.startsWith("• **/grade**")));
 });
 
 test("every slash command, subcommand, and option has a short description", () => {
@@ -277,13 +206,9 @@ test("/data opens separate views for access, bot/API, and colors", () => {
   assert.ok(access.fields.some(({ name }) => name === "Authorized Users"));
   assert.ok(access.fields.some(({ name }) => name === "Authorized Roles"));
 
-  const bot = createDataEmbed("bot", {
-    robloxApiOnline: true,
-    ollama: { name: "Ollama (grading AI)", state: "Online", detail: "qwen2.5:1.5b", latencyMs: 12 },
-  }).toJSON();
+  const bot = createDataEmbed("bot", { robloxApiOnline: true }).toJSON();
   const integrations = bot.fields.find(({ name }) => name === "Integrations").value;
   assert.match(integrations, /Roblox Public API: Online/);
-  assert.match(integrations, /Ollama \(grading AI\): Online — qwen2\.5:1\.5b/);
   const runtime = bot.fields.find(({ name }) => name === "Runtime").value;
   assert.ok(runtime.includes(`Version: ${BOT_VERSION}`), "the Bot & API view must report the running version");
   assert.match(runtime, /Uptime:/);
@@ -294,10 +219,7 @@ test("/data opens separate views for access, bot/API, and colors", () => {
   assert.ok(colors.fields.some(({ name }) => name === "Rotating Presence"));
 
   for (const view of ["overview", "access", "bot", "colors"]) {
-    const embed = createDataEmbed(view, {
-      robloxApiOnline: false,
-      ollama: { name: "Ollama (grading AI)", state: "Offline", detail: "Unreachable", latencyMs: 3 },
-    }).toJSON();
+    const embed = createDataEmbed(view, { robloxApiOnline: false }).toJSON();
     assert.ok(embed.fields.length <= 25, `${view} exceeds the embed field limit`);
     assert.ok(embed.fields.every(({ value }) => value.length <= 1024), `${view} has an oversized field`);
   }
@@ -309,7 +231,7 @@ test("every command except the public admin panel requires granted access", () =
     registered.filter((name) => !ACCESS_CONTROLLED_COMMANDS.has(name)),
     ["admin"],
   );
-  for (const name of ["background", "badge", "groups", "changelog", "info", "grade"]) {
+  for (const name of ["background", "badge", "groups", "changelog", "info"]) {
     assert.ok(ACCESS_CONTROLLED_COMMANDS.has(name), `${name} must require access`);
   }
 });
@@ -341,7 +263,7 @@ test("authorized users get exactly 50 commands per UTC day", () => {
   }
 });
 
-test("/info reports live Ollama status alongside the other integrations", () => {
+test("/info reports bot statistics and integrations", () => {
   const embed = createInfoEmbed({
     pingMs: 42,
     servers: 2,
@@ -355,7 +277,6 @@ test("/info reports live Ollama status alongside the other integrations", () => 
     robloxOnline: true,
     robloxCloud: true,
     xtracker: false,
-    ollama: { name: "Ollama (grading AI)", state: "Online", detail: "qwen2.5:1.5b", latencyMs: 8 },
     dailyUsage: {
       allowed: true,
       used: 7,
@@ -364,66 +285,10 @@ test("/info reports live Ollama status alongside the other integrations", () => 
       resetAt: new Date("2026-11-14T00:00:00Z"),
     },
   }).toJSON();
-  const ollama = embed.fields.find(({ name }) => name === "Ollama (grading AI)");
-  assert.ok(ollama, "/info must show Ollama status");
-  assert.equal(ollama.value, "Online — qwen2.5:1.5b\n8ms");
   assert.match(embed.fields.find(({ name }) => name === "Daily Commands").value, /^7\/50 used/);
   assert.equal(embed.fields.find(({ name }) => name === "Version").value, BOT_VERSION);
   assert.equal(embed.fields.find(({ name }) => name === "Ping").value, "42ms");
   assert.equal(embed.fields.find(({ name }) => name === "Uptime").value, "1h 0s");
-});
-
-test("grading feedback log is an embed with a sheet-ready row and owner ping", () => {
-  const embed = createGradingFeedbackLogEmbed({
-    mistake: "broke oos.",
-    severity: "MODERATE",
-    userId: "1186370477606838375",
-    username: "guru_guru1x",
-  }).toJSON();
-  assert.equal(embed.title, "Grading Feedback Saved");
-  assert.match(embed.description, /Google Sheet/);
-  assert.equal(embed.fields.find(({ name }) => name === "Severity").value, "MODERATE");
-  assert.match(embed.fields.find(({ name }) => name === "Submitted by").value, /guru_guru1x \(<@1186370477606838375>\)/);
-  assert.match(embed.fields.find(({ name }) => name === "Google Sheets entry").value, /\[-\] broke OOS\. - MODERATE/);
-});
-
-test("host rating report uses the requested format, colors, and grammar fixes", () => {
-  const report = formatHostRatingReport({
-    evaluator: "Guru_Guru1X",
-    host: "Host_User",
-    eventType: "vip training",
-    positives: ["[-] flawless event otherwise"],
-    negatives: [
-      "let attendee fall in without them asking ptfi",
-      "hesitated to restart round after attendee went afk",
-      "Set os to be 15 instead of 11.",
-    ],
-    score: 85,
-    passed: true,
-  });
-  assert.match(report, /^\*\*Your Username:\*\* Guru_Guru1X$/m);
-  assert.match(report, /^\*\*Host's Username:\*\* Host_User$/m);
-  assert.match(report, /^\*\*Event Type:\*\* VIP Training$/m);
-  assert.match(report, /^\*\*Rating: 8\.5\/10 \| PASS\*\*$/m);
-  assert.match(report, /\u001b\[38;2;64;222;64m\n\[\+\] Flawless event otherwise\./);
-  assert.match(report, /\u001b\[38;2;255;36;36m\n\[\-\] Let attendee fall in without them asking PTFI\./);
-  assert.match(report, /\[\-\] Hesitated to restart round after attendee went AFK\./);
-  assert.match(report, /\[\-\] Set OS to be 15 instead of 11\./);
-  assert.match(report, /^\*\*Proof: \*\*$/m);
-});
-
-test("host rating report handles a perfect score and missing feedback", () => {
-  const report = formatHostRatingReport({
-    evaluator: "Guru_Guru1X",
-    host: "Host_User",
-    eventType: "Guarding Evaluation",
-    positives: [],
-    negatives: [],
-    score: 100,
-    passed: true,
-  });
-  assert.match(report, /^\*\*Rating: 10\/10 \| PASS\*\*$/m);
-  assert.equal(report.match(/\(none recorded\)/g)?.length, 2);
 });
 
 test("admin modal and color menus provide selectable access and appearance settings", () => {
@@ -561,7 +426,6 @@ test("paginates embeds without splitting related blocks", () => {
     robloxOnline: true,
     robloxCloud: true,
     xtracker: false,
-    ollama: { name: "Ollama (grading AI)", state: "Online", detail: "qwen2.5:1.5b", latencyMs: 8 },
     dailyUsage: null,
   });
   const original = info().toJSON();
@@ -766,148 +630,23 @@ test("formats chart counts with ASCII thousands separators", () => {
   assert.match(formatChartCount(1252), /^[0-9,]+$/);
 });
 
-test("keeps only valid novel grading suggestions in sheet-ready format", () => {
-  const suggestions = parseGradeMistakeSuggestions({
-    suggestions: [
-      { source_index: 0, mistake: "  Failure to secure the lobby  ", severity: "MINOR", reason: "Not covered by the rubric." },
-      { source_index: 1, mistake: "Failure to obey a VIP order.", severity: "MODERATE", reason: "Already listed." },
-      { source_index: 2, mistake: "A possible exploit.", severity: "AUTO_FAIL", reason: "Invalid severity for this evaluation." },
-      { source_index: 3, mistake: "Terminated the VIP intentionally.", severity: "EXTREME", reason: "New extreme rule for VIP Training." },
-    ],
-  }, [
-    "Did not secure the lobby",
-    "Failure to obey a VIP order",
-    "A possible exploit",
-    "Terminated the VIP intentionally",
-  ], "VIP Training", ["Failure to obey a VIP order"]);
-  assert.deepEqual(suggestions, [
-    {
-      mistake: "Failure to secure the lobby",
-      severity: "MINOR",
-      reason: "Not covered by the rubric.",
-    },
-    {
-      mistake: "Terminated the VIP intentionally.",
-      severity: "EXTREME",
-      reason: "New extreme rule for VIP Training.",
-    },
-  ]);
-});
-
-test("only applies sheet-verified review matches and safe grammar fixes", () => {
-  const reviews = parseGradeReview({
-    reviews: [
-      { index: 0, rubric: "failure to obey a vip order", corrected: "Failed to obey a VIP order.", reason: "Same behavior." },
-      { index: 1, rubric: "Something that is not in the sheet", corrected: "Unrelated replacement text.", reason: "No match." },
-      { index: 0, rubric: "Failure to obey a VIP order", corrected: "Duplicate index." },
-      { index: 2, rubric: "Terminating your own VIP", corrected: "Terminating your own VIP." },
-      { index: 9, rubric: "Failure to obey a VIP order", corrected: "Out of range." },
-    ],
-  }, ["didnt obey the vip order", "random thing happened", "Terminating your own VIP"], "VIP Training", [
-    { mistake: "Failure to obey a VIP order", severity: "MINOR" },
-    { mistake: "Terminating your own VIP", severity: "EXTREME" },
-  ]);
-  assert.deepEqual(reviews, [{
-    original: "didnt obey the vip order",
-    index: 0,
-    correctedText: "Failed to obey a VIP order.",
-    rubricMistake: "Failure to obey a VIP order",
-    severity: "MINOR",
-    reason: "Same behavior.",
-  }]);
-});
-
-test("accepts EXTREME rubric matches in VIP Training reviews", () => {
-  const reviews = parseGradeReview({
-    reviews: [{ index: 0, rubric: "Terminating your own VIP", corrected: "Terminating your own VIP." }],
-  }, ["Terminating your own VIP"], "VIP Training", [
-    { mistake: "Terminating your own VIP", severity: "EXTREME" },
-  ]);
-  assert.deepEqual(reviews, [{
-    original: "Terminating your own VIP",
-    index: 0,
-    correctedText: "",
-    rubricMistake: "Terminating your own VIP",
-    severity: "EXTREME",
-    reason: "",
-  }]);
-});
-
-test("drops an AI rewrite that no longer resembles the original", () => {
-  const reviews = parseGradeReview({
-    reviews: [{ index: 0, rubric: "Failure to secure the lobby", corrected: "Completely unrelated sentence about lunch.", reason: "" }],
-  }, ["The lobby was not secure"], "Guarding Evaluation", [
-    { mistake: "Failure to secure the lobby", severity: "MODERATE" },
-  ]);
-  assert.equal(reviews.length, 1);
-  assert.equal(reviews[0].correctedText, "");
-});
-
-test("accepts numbered rubric matches from the local model", () => {
-  const reviews = parseGradeReview({
-    reviews: [{ index: 0, rule: 1, corrected: "Didn't secure the lobby." }],
-  }, ["didnt secure the lobby"], "Guarding Evaluation", [
-    { mistake: "Failure to secure the lobby", severity: "MODERATE" },
-  ]);
-  assert.equal(reviews.length, 1);
-  assert.equal(reviews[0].severity, "MODERATE");
-  assert.equal(reviews[0].correctedText, "Didn't secure the lobby.");
-});
-
-test("rejects a short rule that only shares filler words", () => {
-  const reviews = parseGradeReview({
-    reviews: [{ index: 0, candidate: 1, corrected: "Was rude to the VIP." }],
-  }, ["was rude to the vip"], "Guarding Evaluation", [
-    { mistake: "Killed the VIP.", severity: "MAJOR" },
-  ]);
-  assert.deepEqual(reviews, []);
-});
-
-test("rejects a forced rubric match with no real word overlap", () => {
-  const reviews = parseGradeReview({
-    reviews: [{ index: 0, rule: 1, corrected: "Was rude to the VIP." }],
-  }, ["was rude to the vip"], "Guarding Evaluation", [
-    { mistake: "Failure to obey a VIP order", severity: "MINOR" },
-  ]);
-  assert.deepEqual(reviews, []);
-});
-
 test("api status embed reports every integration state", () => {
   const embed = createApiStatusEmbed([
     { name: "Discord Gateway", state: "Online", detail: "42ms ping" },
-    { name: "Google Sheets Rubric", state: "Online", detail: "432 rules", latencyMs: 88 },
-    { name: "Ollama (grading AI)", state: "Degraded", detail: "qwen2.5:1.5b is not pulled", latencyMs: 12 },
+    { name: "Roblox Users API", state: "Online", detail: "ok", latencyMs: 88 },
+    { name: "xTracker", state: "Degraded", detail: "not configured", latencyMs: 12 },
   ]).toJSON();
   assert.match(embed.description, /2\/3.*online/);
   assert.deepEqual(embed.fields.map(({ name }) => name), [
     "🟢 Discord Gateway",
-    "🟢 Google Sheets Rubric",
-    "🟡 Ollama (grading AI)",
+    "🟢 Roblox Users API",
+    "🟡 xTracker",
   ]);
   assert.match(embed.fields[1].value, /88ms/);
 });
 
-test("grading AI refuses non-local model endpoints", async () => {
-  await assert.rejects(
-    suggestNewGradeMistakes({
-      eventType: "VIP Training",
-      mistakes: ["Did not secure the lobby"],
-      knownRules: [],
-      baseUrl: "https://example.com",
-      model: "qwen2.5:1.5b",
-    }),
-    /must use a local Ollama address/,
-  );
-});
-
-test("local AI calls reject quickly when Ollama is not running", async () => {
+test("alt-risk AI calls reject quickly when Ollama is not running", async () => {
   const unreachable = { baseUrl: "http://127.0.0.1:1", model: "qwen2.5:1.5b" };
-  await assert.rejects(suggestNewGradeMistakes({
-    eventType: "Guarding Evaluation",
-    mistakes: ["Did not secure the lobby"],
-    knownRules: [],
-    ...unreachable,
-  }));
   await assert.rejects(assessAltRisk({ signals: { account_age_days: 1 }, ...unreachable }));
 });
 
