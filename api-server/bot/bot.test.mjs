@@ -35,8 +35,6 @@ const {
   createAuthorizedUserEmbed,
   createInfoEmbed,
   formatExploitWatcher,
-  formatLinkedDiscordAccounts,
-  formatDiscordWatcherRecord,
   formatDiscordAccountSection,
   watcherGuildReasons,
   formatWatcherEvidence,
@@ -97,14 +95,6 @@ test("registers only the retained commands", () => {
   const profileOptions = registered.find(({ name }) => name === "profile").options;
   assert.equal(profileOptions[0].name, "username");
   assert.equal(profileOptions[0].required, true);
-});
-
-test("Discord watcher records appear only when flagged", () => {
-  assert.equal(formatDiscordWatcherRecord("Roblox Watcher", { flagged: false, reasons: [] }), "");
-  const flagged = formatDiscordWatcherRecord("Exploit Watcher", { flagged: true, reasons: ["Condo Hub (NSFW)"] });
-  assert.match(flagged, /\*\*Exploit Watcher:\*\* 🔴 Flagged/);
-  assert.match(flagged, /↳ Condo Hub \(NSFW\)/);
-  assert.match(formatDiscordWatcherRecord("Roblox Watcher", { flagged: true, reasons: [] }), /↳ None/);
 });
 
 test("the Discord account section shows identity, mention, and Hammer Time creation", () => {
@@ -453,31 +443,6 @@ test("/info reports bot statistics and integrations", () => {
   assert.equal(embed.fields.find(({ name }) => name === "Uptime").value, "1h 0s");
 });
 
-test("watcher accounts are listed once each as mentions", () => {
-  const merged = formatLinkedDiscordAccounts([
-    {
-      watcher: "Roblox Watcher",
-      product: "robloxwatcher",
-      accounts: [
-        { id: "1522651757115609140", sources: ["Bloxlink"], flagged: true },
-        { id: "111111111111111111", sources: ["Discord Profile"], flagged: false },
-      ],
-    },
-    {
-      watcher: "Exploit Watcher",
-      product: "exploitwatcher",
-      accounts: [
-        { id: "1522651757115609140", sources: ["Discord Profile"], flagged: false },
-        { id: "1533296343572025416", sources: ["Bloxlink"], flagged: true },
-      ],
-    },
-  ]);
-  assert.equal(merged, "**Linked Discord accounts:** 3\n• <@1522651757115609140>\n• <@111111111111111111>\n• <@1533296343572025416>");
-  assert.equal(merged.match(/1522651757115609140/g).length, 1);
-  assert.doesNotMatch(merged, /Bloxlink|flagged/);
-  assert.equal(formatLinkedDiscordAccounts([]), "");
-});
-
 test("watcher sections show the server evidence behind each flag", () => {
   const accounts = [{
     id: "1522651757115609140",
@@ -487,9 +452,6 @@ test("watcher sections show the server evidence behind each flag", () => {
   }];
   const evidence = formatWatcherEvidence(accounts);
   assert.equal(evidence, "↳ <@1522651757115609140>\n  Xeno (Executor Reselling Server) · 80 messages · last seen <t:1770000000:R>");
-  const header = formatLinkedDiscordAccounts([{ watcher: "Exploit Watcher", product: "exploitwatcher", accounts }]);
-  assert.doesNotMatch(header, /↳/);
-  assert.match(header, /• <@1522651757115609140>/);
 });
 
 test("watcher guild reasons describe server type, activity and recency", () => {

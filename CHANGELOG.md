@@ -1,5 +1,8 @@
 # Change Log
 
+## 2.0.58 - 2026-11-22
+- Removed the duplicate Discord Watcher Record and linked-account list from `/background check`; the punishment record's Roblox Watcher and Exploit Watcher sections already show those records and mentions.
+
 ## 2.0.57 - 2026-11-22
 - Moved the Discord Watcher Record and linked Discord accounts out of the top of `/background check`; they keep their own sections below Punishment Record, next to the watcher evidence and before the badge chart.
 

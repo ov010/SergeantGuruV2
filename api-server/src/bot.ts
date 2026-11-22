@@ -1232,18 +1232,6 @@ function watcherAccounts(payload: JsonObject): WatcherAccount[] {
   }));
 }
 
-// Linked accounts are shown once each, as mentions, so an ID reported by both
-// watchers produces one ping and one line.
-export function formatLinkedDiscordAccounts(groups: WatcherAccountGroup[]): string {
-  const ids = [...new Set(groups.flatMap((group) => group.accounts.map((account) => account.id)))];
-  if (!ids.length) return "";
-  const shown = ids.slice(0, WATCHER_LINKED_ACCOUNT_LIMIT);
-  const lines = shown.map((id) => `• ${isDiscordUserId(id) ? `<@${id}>` : `\`${id}\``}`);
-  const omitted = ids.length - shown.length;
-  if (omitted > 0) lines.push(`… and ${omitted} more`);
-  return `**Linked Discord accounts:** ${ids.length}\n${lines.join("\n")}`;
-}
-
 const WATCHER_EVIDENCE_LIMIT = 10;
 const WATCHER_REASON_GUILD_LIMIT = 2;
 
@@ -1314,15 +1302,6 @@ async function fetchDiscordWatcherRecord(product: WatcherProduct, discordId: str
 
 async function fetchWatcherGuildReasons(product: WatcherProduct, discordId: string, signal?: AbortSignal): Promise<string[]> {
   return (await fetchDiscordWatcherRecord(product, discordId, signal)).reasons;
-}
-
-// A Discord ID can be flagged even when the Roblox account it is linked to is
-// not, so these records keep their own section beside the linked accounts near
-// the bottom of the report.
-export function formatDiscordWatcherRecord(label: string, record: DiscordWatcherRecord): string {
-  if (!record.flagged) return "";
-  const reasons = record.reasons.length ? record.reasons : ["None"];
-  return `**${label}:** 🔴 Flagged\n${reasons.map((reason) => `↳ ${reason}`).join("\n")}`;
 }
 
 export interface DiscordAccountView {
@@ -1596,13 +1575,11 @@ async function backgroundCheck(
   discordId?: string,
 ): Promise<{ embeds: EmbedBuilder[]; image?: AttachmentBuilder; mentions: string[]; user: { id: string; name: string } }> {
   const user = resolvedUser ?? await resolveUser(username, signal);
-  const [groups, details, history, friends, blacklistCards, secretCards, xtracker, robloxWatcher, exploitWatcher, discordRobloxWatcher, discordExploitWatcher, avatarSignals, gameSignals, inventorySignals, avatar, discordUser] = await Promise.all([
+  const [groups, details, history, friends, blacklistCards, secretCards, xtracker, robloxWatcher, exploitWatcher, avatarSignals, gameSignals, inventorySignals, avatar, discordUser] = await Promise.all([
     fetchGroups(user.id, signal), fetchProfileDetails(user.id, signal), fetchUsernameHistory(user.id, signal), fetchFriendCounts(user.id, signal),
     fetchTrelloCards(BLACKLIST_BOARD, user.name, signal), fetchTrelloCards(SECRET_SERVICE_BOARD, user.name, signal), fetchXtracker(user.id, signal),
     fetchRobloxWatcher(user.id, signal),
     fetchExploitWatcher(user.id, signal),
-    discordId ? fetchDiscordWatcherRecord("robloxwatcher", discordId, signal) : Promise.resolve({ flagged: false, reasons: [] }),
-    discordId ? fetchDiscordWatcherRecord("exploitwatcher", discordId, signal) : Promise.resolve({ flagged: false, reasons: [] }),
     fetchAvatarSignals(user.id, signal), fetchGameSignals(user.id, signal), fetchInventorySignals(user.id, signal),
     fetchRobloxAvatar(user.id, signal).catch((error) => {
       if (signal.aborted) throw error;
@@ -1619,7 +1596,6 @@ async function backgroundCheck(
     { watcher: "Exploit Watcher", product: "exploitwatcher", accounts: exploitWatcher.accounts },
   ];
   await attachWatcherReasons(linkedGroups, signal);
-  const linkedAccounts = formatLinkedDiscordAccounts(linkedGroups);
   const robloxWatcherEvidence = formatWatcherEvidence(robloxWatcher.accounts);
   const exploitWatcherEvidence = formatWatcherEvidence(exploitWatcher.accounts);
   const robloxWatcherField = [robloxWatcher.status, robloxWatcherEvidence].filter(Boolean).join("\n");
@@ -1765,13 +1741,6 @@ async function backgroundCheck(
   const robloxSection = robloxWatcher.status.startsWith("No linked") && !robloxWatcher.accounts.length
     ? "None"
     : robloxWatcherField || "None";
-  const discordWatcherRecords = [
-    formatDiscordWatcherRecord("Roblox Watcher", discordRobloxWatcher),
-    formatDiscordWatcherRecord("Exploit Watcher", discordExploitWatcher),
-  ].filter(Boolean);
-  const discordWatcherSection = discordWatcherRecords.length
-    ? `## Discord Watcher Record\n${discordWatcherRecords.join("\n\n")}`
-    : "";
   // The watcher labels stay small and sit directly under the punishment
   // records, without dividers between them.
   const watcherSections = [
@@ -1798,8 +1767,6 @@ async function backgroundCheck(
     `## Alt Risk\n${altRiskSection}${aiNote ? `\n**Roblox AI Note:** ${aiNote.slice(0, 500)}` : ""}`,
     `## Ranks & Division\n${formatGroups(groups)}`,
     `## Punishment Record\n${punishmentRecord}\n\n${watcherSections}`,
-    ...(discordWatcherSection ? [discordWatcherSection] : []),
-    ...(linkedAccounts ? [linkedAccounts] : []),
     ...(!image ? [`## Badge Chart\n${badgeChartSection}`] : []),
   ];
   // Keep each embed under Discord's 4,096-character description limit by
