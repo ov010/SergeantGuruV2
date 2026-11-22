@@ -1,5 +1,11 @@
 # Change Log
 
+## 2.0.59 - 2026-11-22
+- `/info` keeps the Exploit Watcher API status with the other integrations instead of starting a page for it, and `/api` always sends all statuses in one embed.
+- Badge charts no longer draw the circular marker rings, and the unused account-creation marker logic and argument are gone.
+- Removed the divider line directly under the `/background check` title.
+- Simplified the Roblox Account section by removing Following, Followers, Created Games, Favourite Games and Asset Types.
+
 ## 2.0.58 - 2026-11-22
 - Removed the duplicate Discord Watcher Record and linked-account list from `/background check`; the punishment record's Roblox Watcher and Exploit Watcher sections already show those records and mentions.
 

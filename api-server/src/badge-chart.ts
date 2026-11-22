@@ -213,25 +213,6 @@ function fillCircle(png: PNG, centerX: number, centerY: number, radius: number, 
   }
 }
 
-function drawRing(png: PNG, centerX: number, centerY: number, radius: number, color: RGB): void {
-  const scaledRadius = radius * RENDER_SCALE;
-  const centerXScaled = centerX * RENDER_SCALE + (RENDER_SCALE - 1) / 2;
-  const centerYScaled = centerY * RENDER_SCALE + (RENDER_SCALE - 1) / 2;
-  const strokeRadius = RENDER_SCALE * 0.7;
-  const minX = Math.max(0, Math.floor(centerXScaled - scaledRadius - strokeRadius - 1));
-  const maxX = Math.min(png.width - 1, Math.ceil(centerXScaled + scaledRadius + strokeRadius + 1));
-  const minY = Math.max(0, Math.floor(centerYScaled - scaledRadius - strokeRadius - 1));
-  const maxY = Math.min(png.height - 1, Math.ceil(centerYScaled + scaledRadius + strokeRadius + 1));
-
-  for (let y = minY; y <= maxY; y += 1) {
-    for (let x = minX; x <= maxX; x += 1) {
-      const distance = Math.hypot(x - centerXScaled, y - centerYScaled);
-      const coverage = Math.max(0, Math.min(1, strokeRadius + 0.5 - Math.abs(distance - scaledRadius)));
-      blendPixel(png, x, y, color, coverage);
-    }
-  }
-}
-
 function drawAvatar(png: PNG, avatar: PNG, centerX: number, centerY: number, radius: number): void {
   const outputRadius = radius * RENDER_SCALE;
   const sourceSize = Math.min(avatar.width, avatar.height);
@@ -339,7 +320,6 @@ export async function makeBadgeChart(
   username: string,
   badges: Array<{ addTime?: unknown }>,
   colorHex: string,
-  created?: Date,
   avatar?: PNG,
   userId?: string,
 ): Promise<Buffer> {
@@ -380,7 +360,6 @@ export async function makeBadgeChart(
   });
   fillCircle(png, 51, 42, 24, hexColor("#1b1b20"));
   if (avatar) drawAvatar(png, avatar, 51, 42, 24);
-  drawRing(png, 51, 42, 25, lineColor);
   drawText(png, fontAtlas, username, 91, 10, white, 26);
   drawText(png, fontAtlas, `${formatChartCount(dates.length)} badges | ${dateLabel(dates[0]!)} - ${dateLabel(dates.at(-1)!)}`, 91, 49, labelColor, 14);
   const summary = summarizeBadgeHistory(badges);
@@ -449,17 +428,6 @@ export async function makeBadgeChart(
     fillRect(png, curvePoints[0]![0], curvePoints[0]![1], 1, plotBottom - curvePoints[0]![1] + 1, fillColor);
   }
 
-  const suspicious = new Set<number>();
-  const beforeAccount = new Set<number>();
-  for (let index = 0; index < dates.length; index += 1) {
-    if (created && dates[index]!.getTime() < created.getTime()) {
-      beforeAccount.add(index);
-      continue;
-    }
-    const start = Math.max(0, index - 2), end = Math.min(dates.length, index + 3);
-    const cluster = dates.slice(start, end);
-    if (cluster.length >= 3 && cluster.at(-1)!.getTime() - cluster[0]!.getTime() < 20_000) suspicious.add(index);
-  }
   const inactivityGaps = gaps
     .filter((item) => item.months >= 3)
     .sort((a, b) => b.months - a.months)
@@ -481,15 +449,6 @@ export async function makeBadgeChart(
     fillCircle(png, previous[0], previous[1], 2, markerColor);
     fillCircle(png, current[0], current[1], 2, markerColor);
   }
-  for (const index of suspicious) {
-    const [x, y] = points[index]!;
-    drawRing(png, x, y, 4, hexColor("#b8adff"));
-  }
-  for (const index of beforeAccount) {
-    const [x, y] = points[index]!;
-    drawRing(png, x, y, 4, hexColor("#60a5fa"));
-  }
-
   drawText(png, fontAtlas, "Badges earned per month", left, 394, labelColor, 14);
   drawLine(png, left, barBottom, width - right, barBottom, grid);
   const maxMonthlyCount = Math.max(...monthlyCounts);

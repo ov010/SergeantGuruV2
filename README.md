@@ -76,13 +76,14 @@ Authorization, daily usage, and settings remain in
 `api-server/bot/data/authorizations.sqlite3`.
 
 Any embed with more than fifteen lines of information is split across pages with
-Previous and Next buttons; `/info`, `/api`, `/changelog`, and `/search`
-paginate. Any member can use those buttons, and the page data is stored in the
-authorization database so paging still works after a bot restart. Pages target fifteen lines but keep the description and each field whole,
+Previous and Next buttons; `/info`, `/changelog`, and `/search` paginate.
+`/api` always sends all integration statuses in one embed. Any member can use
+those buttons, and the page data is stored in the authorization database so
+paging still works after a bot restart. Pages target fifteen lines but keep the description and each field whole,
 so a page can show more than fifteen lines when a related block needs it.
 Interaction logs are exempt: every log is sent as one complete embed. The
-`/background check`, `/badge count`, and `/groups` reports are also sent as
-single embeds without pagination.
+`/background check`, `/badge count`, `/groups`, and `/api` reports are also
+sent as single embeds without pagination.
 `/search` scans the full interaction-log history (up to 100,000 messages) and
 returns every matching entry, not just the latest few; if the cap is reached,
 the results say so.

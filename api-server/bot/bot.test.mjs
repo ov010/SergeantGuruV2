@@ -666,6 +666,10 @@ test("paginates embeds without splitting related blocks", () => {
     original.fields.map(({ name, value }) => ({ name, value })),
     "no field is split across pages",
   );
+  assert.ok(pages.every((page) => page.toJSON().fields.length !== 1), "no page is created for one trailing field");
+  const lastPage = pages.at(-1).toJSON();
+  assert.ok(lastPage.fields.some(({ name }) => name === "Roblox Watcher API"));
+  assert.ok(lastPage.fields.some(({ name }) => name === "Exploit Watcher API"), "the last integration stays with the others");
 
   for (const [index, page] of pages.entries()) {
     const json = page.toJSON();

@@ -359,6 +359,17 @@ export function paginateEmbed(embed: EmbedBuilder): EmbedBuilder[] {
     currentLines += blockLines;
   }
   if (current.length) pageBlocks.push(current);
+  // Do not give one trailing field a page of its own when the page before it
+  // still fits the target; joined, the last statuses stay with the others.
+  const lastPage = pageBlocks.at(-1);
+  const previousPage = pageBlocks.at(-2);
+  if (lastPage?.length === 1 && lastPage[0]?.kind === "field" && previousPage) {
+    const previousLines = previousPage.reduce((sum, block) => sum + Math.max(1, block.lines.length), 0);
+    if (previousLines <= PAGE_LINE_LIMIT) {
+      previousPage.push(...lastPage);
+      pageBlocks.pop();
+    }
+  }
   if (pageBlocks.length <= 1) return [embed];
 
   return pageBlocks.map((group, index) => {
@@ -1620,7 +1631,7 @@ async function backgroundCheck(
     badgeDataAvailable = true;
     const chartColor = CHART_COLORS[getSetting("chart_color", DEFAULT_CHART_COLOR)]?.[0] ?? CHART_COLORS[DEFAULT_CHART_COLOR]![0];
     if (signal.aborted) throw signal.reason;
-    image = await makeBadgeChart(user.name, badges, chartColor, detailsCreated(details), avatar?.png, user.id);
+    image = await makeBadgeChart(user.name, badges, chartColor, avatar?.png, user.id);
     if (signal.aborted) throw signal.reason;
   } catch (error) {
     if (signal.aborted) throw error;
@@ -1720,18 +1731,13 @@ async function backgroundCheck(
     "",
     `**Badges:** ${badgeCountLabel}`,
     `**Username Changes:** ${stat(history.length)}`,
-    `**Created Games:** ${stat(gameSignals.created)}`,
-    `**Favourite Games:** ${stat(gameSignals.favorites)}`,
     "",
     "**Community**",
     `**Friends:** ${stat(friends.friends)}`,
-    `**Following:** ${stat(friends.following)}`,
-    `**Followers:** ${stat(friends.followers)}`,
     "",
     "**Inventory**",
     `**Game Passes:** ${inventoryStat(inventorySignals.gamepassCount, inventorySignals.gamepassCapped)}`,
     `**Items:** ${inventoryStat(inventorySignals.itemCount, inventorySignals.itemCapped)}`,
-    `**Asset Types:** ${inventoryStat(inventorySignals.assetTypeCount, inventorySignals.itemCapped)}`,
     `[Open Inventory](https://www.roblox.com/users/${user.id}/inventory/)`,
   ].join("\n");
   // A lookup with nothing to report reads as None instead of a green status.
@@ -1789,7 +1795,7 @@ async function backgroundCheck(
     const pageEmbed = new EmbedBuilder()
       .setTitle(index === 0 ? user.name : `${user.name} (continued)`)
       .setURL(`https://www.roblox.com/users/${user.id}/profile`)
-      .setDescription(`${SECTION_DIVIDER}\n${description}${index === pages.length - 1 ? "\n\n-# New public databases may be added in future updates." : ""}`)
+      .setDescription(`${description}${index === pages.length - 1 ? "\n\n-# New public databases may be added in future updates." : ""}`)
       .setColor(embedColor("Background Check"))
       .setFooter({ text: footer() });
     if (index === 0 && avatar) pageEmbed.setThumbnail(avatar.url);
@@ -1833,7 +1839,7 @@ async function badgeCountReport(username: string, signal: AbortSignal): Promise<
   }
   try {
     const chartColor = CHART_COLORS[getSetting("chart_color", DEFAULT_CHART_COLOR)]?.[0] ?? CHART_COLORS[DEFAULT_CHART_COLOR]![0];
-    const chart = await makeBadgeChart(user.name, badges, chartColor, created, avatar?.png, user.id);
+    const chart = await makeBadgeChart(user.name, badges, chartColor, avatar?.png, user.id);
     if (signal.aborted) throw signal.reason;
     embed.setImage("attachment://badge-history.png");
     return { embed, image: new AttachmentBuilder(chart, { name: "badge-history.png" }) };
@@ -2847,8 +2853,7 @@ async function sendApiStatus(interaction: ChatInputCommandInteraction): Promise<
     ),
   ]);
 
-  const pagination = buildPagination(createApiStatusEmbed(checks));
-  await interaction.editReply({ embeds: pagination.embeds, components: pagination.components });
+  await interaction.editReply({ embeds: [createApiStatusEmbed(checks)] });
 }
 
 export function createApiStatusEmbed(checks: ApiCheck[]): EmbedBuilder {
