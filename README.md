@@ -9,10 +9,11 @@ Requires Node.js 22.13+ and pnpm.
    on such a drive, the packages are installed and only the shims failed; an
    ext4 folder avoids the message entirely.
 2. Open the `.env` file in the project root and fill in `DISCORD_BOT_TOKEN` and
-   `ROBLOX_OPEN_CLOUD_API_KEY`. `PORT` defaults to `3000`. The XTracker and
-   Roblox Watcher keys are optional; without `ROBLOX_WATCHER_API_KEY` the
-   background check says the check is not configured. Trello boards are read
-   publicly, so no Trello credentials are needed. Keep the `.env` file private.
+   `ROBLOX_OPEN_CLOUD_API_KEY`. `PORT` defaults to `3000`. The XTracker, Roblox
+   Watcher and Exploit Watcher keys are optional; without
+   `ROBLOX_WATCHER_API_KEY` or `EXPLOIT_WATCHER_API_KEY` the background check
+   says that check is not configured. Trello boards are read publicly, so no
+   Trello credentials are needed. Keep the `.env` file private.
 3. Start it with `bash "Start SergeantGuruV2.sh"`. The launcher checks Ollama,
    builds, and runs the API server, which supervises the Discord bot. You can
    also run `pnpm start`, or press **F5** in **Run and Debug**.
@@ -34,7 +35,8 @@ The bot provides `/background check`, `/badge count`, `/api`, `/groups`,
 `/profile`, `/info`, `/changelog`, `/search`, and `/ping`. `/background check`
 returns the account header with a headshot, account, community and inventory
 figures, Alt Risk, ranks, the punishment record (blacklist, Secret Service and
-[x]Tracker), Roblox Watcher's linked Discord accounts, and the badge chart.
+[x]Tracker), Roblox Watcher's linked Discord accounts, Exploit Watcher's
+injection history and linked accounts, and the badge chart.
 `/ping` is public and reports Discord gateway latency, round trip and uptime;
 every other command except `/admin` needs granted access. All slash commands
 are registered globally with guild, bot-DM, and private-channel contexts and

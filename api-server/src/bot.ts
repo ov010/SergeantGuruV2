@@ -51,6 +51,7 @@ const ROBLOX_AVATAR = "https://avatar.roblox.com/v1/users";
 const TRELLO_API = "https://api.trello.com/1";
 const XTRACKER_API = "https://api.xtracker.xyz";
 const ROBLOX_WATCHER_API = "https://api.robloxwatcher.com/api/v1/robloxwatcher";
+const EXPLOIT_WATCHER_API = "https://api.robloxwatcher.com/api/v1/exploitwatcher";
 const BLACKLIST_BOARD = "gsCa53Bt";
 const SECRET_SERVICE_BOARD = "xgGFFrH3";
 const NONE = "None";
@@ -72,6 +73,7 @@ if (!token) throw new Error("DISCORD_BOT_TOKEN is required.");
 if (!robloxApiKey) throw new Error("ROBLOX_OPEN_CLOUD_API_KEY is required.");
 const xtrackerApiKey = process.env["XTRACKER_API_KEY"]?.trim() ?? "";
 const robloxWatcherApiKey = process.env["ROBLOX_WATCHER_API_KEY"]?.trim() ?? "";
+const exploitWatcherApiKey = process.env["EXPLOIT_WATCHER_API_KEY"]?.trim() ?? "";
 const altAiBaseUrl = process.env["OLLAMA_BASE_URL"]?.trim() || "http://127.0.0.1:11434";
 const altAiModel = process.env["OLLAMA_MODEL"]?.trim() || "qwen2.5:1.5b";
 
@@ -1172,7 +1174,7 @@ async function fetchRobloxWatcher(userId: string, signal?: AbortSignal): Promise
       return await response.json() as JsonObject;
     }, signal);
     const accounts = Array.isArray(payload.discordAccounts) ? payload.discordAccounts as JsonObject[] : [];
-    if (!accounts.length) return "No linked Discord accounts were found in the Roblox Watcher database.";
+    if (!accounts.length) return "No linked Discord accounts were found in the Roblox Watcher (NSFW/condo server) database.";
     const flagged = accounts.filter((account) => account.flagged === true).length;
     const lines = accounts.slice(0, ROBLOX_WATCHER_ACCOUNT_LIMIT).map((account) => {
       const sources = Array.isArray(account.sources) && account.sources.length
@@ -1188,6 +1190,73 @@ async function fetchRobloxWatcher(userId: string, signal?: AbortSignal): Promise
     if (signal?.aborted) throw error;
     log("Roblox Watcher lookup failed", error);
     return errorText(error, "Roblox Watcher could not be reached right now.");
+  }
+}
+
+const EXPLOIT_WATCHER_ACCOUNT_LIMIT = 8;
+const EXPLOIT_WATCHER_GAME_LIMIT = 5;
+
+// Exploit Watcher lists the injection history for a Roblox account and the
+// Discord accounts linked to it, flagging each side separately.
+export function formatExploitWatcher(payload: JsonObject): string {
+  const accounts = Array.isArray(payload.discordAccounts) ? payload.discordAccounts as JsonObject[] : [];
+  const games = Array.isArray(payload.injectedGames) ? payload.injectedGames as JsonObject[] : [];
+  const flagged = payload.flagged === true;
+  const injections = Number(payload.totalInjections ?? 0);
+  const gameCount = Number(payload.totalGamesInjected ?? games.length);
+  const heading = flagged
+    ? `🔴 **Flagged** — ${injections.toLocaleString("en-US")} injection${injections === 1 ? "" : "s"} in ${gameCount.toLocaleString("en-US")} game${gameCount === 1 ? "" : "s"}`
+    : "🟢 **Not flagged** — no injections were recorded for this account";
+  const blocks = [heading];
+  if (accounts.length) {
+    const flaggedAccounts = accounts.filter((account) => account.flagged === true).length;
+    const lines = accounts.slice(0, EXPLOIT_WATCHER_ACCOUNT_LIMIT).map((account) => {
+      const sources = Array.isArray(account.sources) && account.sources.length
+        ? ` (${account.sources.map(String).join(", ")})`
+        : "";
+      return `• \`${String(account.id ?? "Unknown")}\`${sources}${account.flagged === true ? " — flagged" : ""}`;
+    });
+    const omitted = accounts.length - lines.length;
+    if (omitted > 0) lines.push(`… and ${omitted} more`);
+    blocks.push(`**Linked Discord accounts:** ${accounts.length}${flaggedAccounts ? `  •  **Flagged:** ${flaggedAccounts}` : ""}\n${lines.join("\n")}`);
+  }
+  if (games.length) {
+    const lines = games.slice(0, EXPLOIT_WATCHER_GAME_LIMIT).map((game) => {
+      const count = Number(game.totalInjections ?? 0);
+      const last = typeof game.lastInjection === "string" ? new Date(game.lastInjection) : undefined;
+      const when = last && !Number.isNaN(last.getTime()) ? ` (last ${last.toISOString().slice(0, 10)})` : "";
+      return `• ${String(game.name ?? "Unknown")} — ${count.toLocaleString("en-US")}${when}`;
+    });
+    const omitted = games.length - lines.length;
+    if (omitted > 0) lines.push(`… and ${omitted} more`);
+    blocks.push(`**Games injected:**\n${lines.join("\n")}`);
+  }
+  return blocks.join("\n");
+}
+
+async function fetchExploitWatcher(userId: string, signal?: AbortSignal): Promise<string> {
+  if (!exploitWatcherApiKey) {
+    return "Not configured. Add `EXPLOIT_WATCHER_API_KEY` to enable this check.";
+  }
+  try {
+    const payload = await cachedRoblox(`exploit_watcher:${userId}`, 1800, async () => {
+      const token = exploitWatcherApiKey.replace(/^Bearer\s+/i, "");
+      const response = await requestJson(`${EXPLOIT_WATCHER_API}/roblox/search/${encodeURIComponent(userId)}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        signal,
+      });
+      if (response.status === 401 || response.status === 403) {
+        throw new BotError("The Exploit Watcher API key was rejected.");
+      }
+      if (response.status === 404) return { discordAccounts: [], flagged: false } as JsonObject;
+      if (!response.ok) throw new BotError(`Exploit Watcher could not complete the request (HTTP ${response.status}).`);
+      return await response.json() as JsonObject;
+    }, signal);
+    return formatExploitWatcher(payload);
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    log("Exploit Watcher lookup failed", error);
+    return errorText(error, "Exploit Watcher could not be reached right now.");
   }
 }
 
@@ -1311,10 +1380,11 @@ function detailsCreated(details: JsonObject): Date | undefined {
 
 async function backgroundCheck(username: string, signal: AbortSignal = new AbortController().signal): Promise<{ embed: EmbedBuilder; image?: AttachmentBuilder }> {
   const user = await resolveUser(username, signal);
-  const [groups, details, history, friends, blacklistCards, secretCards, xtracker, robloxWatcher, avatarSignals, gameSignals, inventorySignals, avatar] = await Promise.all([
+  const [groups, details, history, friends, blacklistCards, secretCards, xtracker, robloxWatcher, exploitWatcher, avatarSignals, gameSignals, inventorySignals, avatar] = await Promise.all([
     fetchGroups(user.id, signal), fetchProfileDetails(user.id, signal), fetchUsernameHistory(user.id, signal), fetchFriendCounts(user.id, signal),
     fetchTrelloCards(BLACKLIST_BOARD, user.name, signal), fetchTrelloCards(SECRET_SERVICE_BOARD, user.name, signal), fetchXtracker(user.id, signal),
     fetchRobloxWatcher(user.id, signal),
+    fetchExploitWatcher(user.id, signal),
     fetchAvatarSignals(user.id, signal), fetchGameSignals(user.id, signal), fetchInventorySignals(user.id, signal),
     fetchRobloxAvatar(user.id, signal).catch((error) => {
       if (signal.aborted) throw error;
@@ -1476,6 +1546,7 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
     { name: "Ranks & Division", value: `${SECTION_DIVIDER}\n${formatGroups(groups)}`.slice(0, 1024), inline: false },
     { name: "Punishment Record", value: `${SECTION_DIVIDER}\n${punishmentRecord}`.slice(0, 1024), inline: false },
     { name: "Roblox Watcher", value: `${SECTION_DIVIDER}\n${robloxWatcher}`.slice(0, 1024), inline: false },
+    { name: "Exploit Watcher", value: `${SECTION_DIVIDER}\n${exploitWatcher}`.slice(0, 1024), inline: false },
   );
   if (!image) {
     embed.addFields({
@@ -2269,6 +2340,7 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
       robloxCloud: Boolean(robloxApiKey),
       xtracker: Boolean(xtrackerApiKey),
       robloxWatcher: Boolean(robloxWatcherApiKey),
+      exploitWatcher: Boolean(exploitWatcherApiKey),
       dailyUsage: isOwner(interaction.user.id) ? null : dailyCommandUsage(interaction.user.id),
     }));
     await interaction.reply({ embeds: pagination.embeds, components: pagination.components });
@@ -2508,6 +2580,12 @@ async function sendApiStatus(interaction: ChatInputCommandInteraction): Promise<
       robloxWatcherApiKey ? { headers: { authorization: `Bearer ${robloxWatcherApiKey.replace(/^Bearer\s+/i, "")}` } } : {},
       { configured: Boolean(robloxWatcherApiKey), onlineStatuses: [404] },
     ),
+    probeEndpoint(
+      "Exploit Watcher",
+      `${EXPLOIT_WATCHER_API}/roblox/search/1`,
+      exploitWatcherApiKey ? { headers: { authorization: `Bearer ${exploitWatcherApiKey.replace(/^Bearer\s+/i, "")}` } } : {},
+      { configured: Boolean(exploitWatcherApiKey), onlineStatuses: [404] },
+    ),
   ]);
 
   const pagination = buildPagination(createApiStatusEmbed(checks));
@@ -2600,6 +2678,7 @@ export interface InfoSnapshot {
   robloxCloud: boolean;
   xtracker: boolean;
   robloxWatcher: boolean;
+  exploitWatcher: boolean;
   /** Null for the owner, who is exempt from the daily command limit. */
   dailyUsage: DailyCommandUsage | null;
 }
@@ -2630,6 +2709,7 @@ export function createInfoEmbed(info: InfoSnapshot): EmbedBuilder {
     { name: "Roblox Open Cloud Key", value: info.robloxCloud ? "OK" : "N/A", inline: true },
     { name: "[x]Tracker API", value: info.xtracker ? "OK" : "N/A", inline: true },
     { name: "Roblox Watcher API", value: info.robloxWatcher ? "OK" : "N/A", inline: true },
+    { name: "Exploit Watcher API", value: info.exploitWatcher ? "OK" : "N/A", inline: true },
   );
 }
 

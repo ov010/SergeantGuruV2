@@ -1,5 +1,9 @@
 # Change Log
 
+## 3.1.0 - 2026-11-22
+- Added an Exploit Watcher lookup to `/background check`: injection totals, the games that were injected, and linked Discord accounts with their flag state. `/api` and `/info` report the integration too. Set `EXPLOIT_WATCHER_API_KEY` to enable it.
+- The empty Roblox Watcher result now says the lookup found nothing in its NSFW/condo server database, instead of implying the account was unknown.
+
 ## 3.0.1 - 2026-11-22
 - Paginated embeds now keep their pages in the authorization database instead of only in memory, so Previous/Next keeps working for every member in the channel after a bot restart and is no longer limited to the user who ran the command.
 - A failed in-place page update now shows the requested page to the person who clicked instead of failing the interaction.

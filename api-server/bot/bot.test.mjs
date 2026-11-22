@@ -33,6 +33,7 @@ const {
   createColorTargetMenu,
   createAuthorizedUserEmbed,
   createInfoEmbed,
+  formatExploitWatcher,
   createPingEmbed,
   createGroupsEmbed,
   createProfileLinkEmbed,
@@ -379,6 +380,7 @@ test("/info reports bot statistics and integrations", () => {
     robloxCloud: true,
     xtracker: false,
     robloxWatcher: true,
+    exploitWatcher: true,
     dailyUsage: {
       allowed: true,
       used: 7,
@@ -391,6 +393,27 @@ test("/info reports bot statistics and integrations", () => {
   assert.equal(embed.fields.find(({ name }) => name === "Version").value, BOT_VERSION);
   assert.equal(embed.fields.find(({ name }) => name === "Ping").value, "42ms");
   assert.equal(embed.fields.find(({ name }) => name === "Uptime").value, "1h 0s");
+});
+
+test("Exploit Watcher reports injections and linked accounts", () => {
+  const text = formatExploitWatcher({
+    robloxId: "9876543210",
+    flagged: true,
+    totalInjections: 5,
+    totalGamesInjected: 2,
+    discordAccounts: [
+      { id: "1522651757115609140", sources: ["Bloxlink"], flagged: true },
+      { id: "1533296343572025416", sources: ["Discord Profile", "Bloxlink"], flagged: false },
+    ],
+    injectedGames: [
+      { name: "Base Wars: The Land!", totalInjections: 3, lastInjection: "2026-07-01T17:00:00.000Z" },
+      { name: "Roblox", totalInjections: 2, lastInjection: "2026-06-21T22:10:00.000Z" },
+    ],
+  });
+  assert.match(text, /\u{1F534} \*\*Flagged\*\* — 5 injections in 2 games/u);
+  assert.match(text, /`1522651757115609140` \(Bloxlink\) — flagged/);
+  assert.match(text, /Base Wars: The Land! — 3 \(last 2026-07-01\)/);
+  assert.equal(formatExploitWatcher({ flagged: false, discordAccounts: [], injectedGames: [] }), "\u{1F7E2} **Not flagged** — no injections were recorded for this account");
 });
 
 test("the admin panel lists authorized users in its own dropdown", () => {
@@ -539,6 +562,7 @@ test("paginates embeds without splitting related blocks", () => {
     robloxCloud: true,
     xtracker: false,
     robloxWatcher: true,
+    exploitWatcher: true,
     dailyUsage: null,
   });
   const original = info().toJSON();
