@@ -1,5 +1,8 @@
 # Change Log
 
+## 3.1.8 - 2026-11-22
+- Shortened the `/background check` section dividers so they no longer stretch across the full embed width.
+
 ## 3.1.7 - 2026-11-22
 - `/background check` now separates every section with a full-width `═` divider and groups the account, community and inventory figures under one Roblox Account section.
 - Inventory item and game-pass counts no longer stop at 1,000 and 500: they page up to 6,000 items and 2,000 game passes, and show a `+` when a count is still capped.
