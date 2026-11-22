@@ -150,6 +150,11 @@ db.exec(`
     authorized_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
   CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS pagination_sessions (
+    token TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS daily_command_usage (
     discord_user_id TEXT NOT NULL,
     usage_day TEXT NOT NULL,
@@ -244,6 +249,56 @@ interface PaginationSession {
 }
 
 const paginationSessions = new Map<string, PaginationSession>();
+
+// Paginated results live in SQLite as well as memory: the interaction response
+// outlives a bot restart, so anyone in the channel must still be able to page it
+// afterwards, not only the user who ran the command.
+function savePaginationSession(token: string, session: PaginationSession): void {
+  try {
+    const payload = JSON.stringify({
+      pages: session.pages.map((page) => page.toJSON()),
+      extraRows: session.extraRows.map((row) => row.toJSON()),
+      createdAt: session.createdAt,
+    });
+    db.prepare("INSERT OR REPLACE INTO pagination_sessions (token, payload, created_at) VALUES (?, ?, ?)")
+      .run(token, payload, session.createdAt);
+  } catch (error) {
+    log("Unable to save the pagination session", error);
+  }
+}
+
+function deletePaginationSession(token: string): void {
+  paginationSessions.delete(token);
+  try {
+    db.prepare("DELETE FROM pagination_sessions WHERE token = ?").run(token);
+  } catch (error) {
+    log("Unable to delete the pagination session", error);
+  }
+}
+
+export function restorePaginationSession(token: string): PaginationSession | undefined {
+  try {
+    const row = db.prepare("SELECT payload, created_at FROM pagination_sessions WHERE token = ?")
+      .get(token) as { payload: string; created_at: number } | undefined;
+    if (!row) return undefined;
+    if (Date.now() - Number(row.created_at) > PAGINATION_TTL_MS) {
+      deletePaginationSession(token);
+      return undefined;
+    }
+    const data = JSON.parse(row.payload) as { pages: JsonObject[]; extraRows: JsonObject[]; createdAt: number };
+    const session: PaginationSession = {
+      pages: data.pages.map((page) => EmbedBuilder.from(page)),
+      // The payload was produced by ActionRowBuilder#toJSON, so it round-trips.
+      extraRows: data.extraRows.map((row) => ActionRowBuilder.from(row as never) as PaginationRow),
+      createdAt: Number(data.createdAt),
+    };
+    paginationSessions.set(token, session);
+    return session;
+  } catch (error) {
+    log("Unable to restore the pagination session", error);
+    return undefined;
+  }
+}
 
 function pagedTitle(title: string | undefined, page: number, total: number): string {
   const base = (title ?? "").replace(/\s*\(Page \d+\/\d+\)$/, "").trim();
@@ -343,9 +398,11 @@ export function buildPaginationFromPages(
   const token = randomBytes(9).toString("hex");
   if (paginationSessions.size >= 1000) {
     const oldest = paginationSessions.keys().next().value;
-    if (oldest) paginationSessions.delete(oldest);
+    if (oldest) deletePaginationSession(oldest);
   }
-  paginationSessions.set(token, { pages: titledPages, createdAt: Date.now(), extraRows });
+  const session = { pages: titledPages, createdAt: Date.now(), extraRows };
+  paginationSessions.set(token, session);
+  savePaginationSession(token, session);
   return {
     embeds: [titledPages[0]!],
     components: [paginationRow(token, 0, titledPages.length) as PaginationRow, ...extraRows],
@@ -2583,18 +2640,26 @@ client.on("interactionCreate", async (interaction) => {
       await handleCommand(interaction);
     } else if (interaction.isButton() && interaction.customId.startsWith("pager:")) {
       const [, token, pageValue] = interaction.customId.split(":");
-      const session = token ? paginationSessions.get(token) : undefined;
+      const session = token ? paginationSessions.get(token) ?? restorePaginationSession(token) : undefined;
       if (!session || Date.now() - session.createdAt > PAGINATION_TTL_MS) {
-        if (token) paginationSessions.delete(token);
+        if (token) deletePaginationSession(token);
         await interaction.reply({ embeds: [makeEmbed("Pagination Expired", "This paginated result has expired. Run the command again.", "Warning")] });
         return;
       }
       const page = Number(pageValue);
       if (!Number.isInteger(page) || page < 0 || page >= session.pages.length) throw new BotError("Choose a valid page.");
-      await interaction.update({
-        embeds: [session.pages[page]!],
-        components: [paginationRow(token!, page, session.pages.length) as PaginationRow, ...session.extraRows],
-      });
+      // The pages belong to the channel, not to whoever ran the command, so any
+      // member may click them. If Discord refuses the in-place update, still
+      // show the requested page to the clicker instead of an error.
+      try {
+        await interaction.update({
+          embeds: [session.pages[page]!],
+          components: [paginationRow(token!, page, session.pages.length) as PaginationRow, ...session.extraRows],
+        });
+      } catch (error) {
+        log("Unable to update the paginated message", error);
+        await interaction.followUp({ embeds: [session.pages[page]!], ephemeral: true }).catch(() => undefined);
+      }
     } else if (interaction.isStringSelectMenu() && interaction.customId === "admin-authorized-user") {
       if (!isOwner(interaction.user.id)) {
         await interaction.reply({ embeds: [deniedEmbed()] });
@@ -2800,6 +2865,7 @@ const cleanupTimer = setInterval(() => {
   for (const [token, session] of paginationSessions) {
     if (session.createdAt < paginationCutoff) paginationSessions.delete(token);
   }
+  db.prepare("DELETE FROM pagination_sessions WHERE created_at < ?").run(paginationCutoff);
 }, 60 * 60 * 1000);
 cleanupTimer.unref();
 await mkdir(DATA_DIR, { recursive: true });

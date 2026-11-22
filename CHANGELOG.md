@@ -1,5 +1,9 @@
 # Change Log
 
+## 3.0.1 - 2026-11-22
+- Paginated embeds now keep their pages in the authorization database instead of only in memory, so Previous/Next keeps working for every member in the channel after a bot restart and is no longer limited to the user who ran the command.
+- A failed in-place page update now shows the requested page to the person who clicked instead of failing the interaction.
+
 ## 3.0.0 - 2026-11-22
 - Fixed the admin panel's authorized-user view: it now has its own embed color instead of failing with "No selectable color target", and it shows the user's display name, username, profile picture, Discord ID, authorization time, and who granted access.
 - `/background check` now lays account, community, and inventory counts out in three compact columns, gives Alt Risk its own section, and keeps the wide ranks, punishment, and Roblox Watcher sections easy to scan.

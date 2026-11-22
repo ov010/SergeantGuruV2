@@ -51,7 +51,8 @@ Authorization, daily usage, and settings remain in
 
 Any embed with more than fifteen lines of information is split across pages with
 Previous and Next buttons; `/info`, `/api`, `/changelog`, and `/search`
-paginate. Pages target fifteen lines but keep the description and each field whole,
+paginate. Any member can use those buttons, and the page data is stored in the
+authorization database so paging still works after a bot restart. Pages target fifteen lines but keep the description and each field whole,
 so a page can show more than fifteen lines when a related block needs it.
 Interaction logs are exempt: every log is sent as one complete embed. The
 `/background check`, `/badge count`, and `/groups` reports are also sent as

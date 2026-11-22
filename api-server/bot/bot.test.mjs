@@ -39,6 +39,7 @@ const {
   createInteractionLogEmbed,
   createSearchResultEmbeds,
   buildPaginationFromPages,
+  restorePaginationSession,
   isDiscordUserId,
   DAILY_COMMAND_LIMIT,
   consumeDailyCommand,
@@ -655,6 +656,22 @@ test("Discord user IDs are distinguished from Roblox usernames", () => {
   assert.equal(isDiscordUserId("12345678901234567890123"), false);
 });
 
+test("paginated results survive a restart, so any member can keep paging", () => {
+  const first = new EmbedBuilder().setTitle("First page").addFields({ name: "Page", value: "one" });
+  const second = new EmbedBuilder().setTitle("Second page").addFields({ name: "Page", value: "two" });
+  const { components } = buildPaginationFromPages([first, second]);
+  const customId = components[0].toJSON().components[0].custom_id;
+  assert.match(customId, /^pager:[a-f0-9]+:-1$/);
+  const token = customId.split(":")[1];
+
+  const restored = restorePaginationSession(token);
+  assert.ok(restored, "the session must be reloadable from the database");
+  assert.equal(restored.pages.length, 2);
+  assert.equal(restored.pages[1].toJSON().title, "Second page (Page 2/2)");
+  assert.deepEqual(restored.extraRows, []);
+  assert.ok(restored.createdAt > 0);
+});
+
 test("pagination controls step through valid pages", () => {
   const embed = runWithInteractionId("1570581254280183828", () => createApiStatusEmbed(
     Array.from({ length: 20 }, (_, index) => ({
@@ -669,6 +686,7 @@ test("pagination controls step through valid pages", () => {
 
   const buttons = pagination.components[0].toJSON().components;
   assert.match(buttons[0].custom_id, /^pager:[a-f0-9]+:-1$/);
+  assert.match(buttons[1].custom_id, /^pager:[a-f0-9]+:1$/);
   assert.match(buttons[1].custom_id, /^pager:[a-f0-9]+:1$/);
   assert.equal(buttons[0].disabled, true);
   assert.equal(buttons[1].disabled, false);
