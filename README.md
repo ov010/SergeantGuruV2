@@ -38,17 +38,17 @@ requires both a Discord user ID and a Roblox username:
 `/background check discord:<id> username:<Roblox username>`. The Discord ID is
 used only for this report and is never saved by the bot. The report starts
 with any Roblox Watcher or Exploit Watcher record for the Discord ID, then
-shows a Discord Account section with the username, display name, ID, mention
-and Hammer Time creation date, followed by the Roblox account header with a
-headshot and the linked Discord accounts merged from Roblox Watcher and
-Exploit Watcher, account, community and inventory figures, Alt Risk, ranks,
+shows the Roblox and Discord accounts side by side with each username, display
+name, user ID and creation date, followed by the Roblox account, community and
+inventory figures under the same block. The linked Discord accounts merged
+from Roblox Watcher and Exploit Watcher appear below the accounts, then Alt
+Risk, ranks,
 the punishment record (blacklist, Secret Service and [x]Tracker), Exploit
 Watcher's injection history, and the badge chart. Alt Risk shows the Roblox
 account score, the Discord account score based on its age, and a combined
 score. Every section is separated by a full-width divider line and titled as a
 Markdown header so it renders larger like the account name; the content sits
-in the embed description, and long results continue into a second embed. The
-account, community and inventory figures share one Roblox Account section. The punishment record groups
+in the embed description, and long results continue into a second embed. The punishment record groups
 Blacklist Records, Secret Service Records and [x]Tracker Records, and the small
 Roblox Watcher and Exploit Watcher labels show `None` when they have nothing
 to report.

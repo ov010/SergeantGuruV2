@@ -1324,22 +1324,105 @@ export function formatDiscordWatcherRecord(label: string, record: DiscordWatcher
   return `**${label}:** 🔴 Flagged\n${reasons.map((reason) => `↳ ${reason}`).join("\n")}`;
 }
 
-export interface DiscordAccountView {
-  username: string;
-  displayName: string;
-  createdAt: Date;
+const ACCOUNT_COLUMN_WIDTH = 46;
+const STAT_COLUMN_WIDTH = 24;
+const STAT_COMMUNITY_WIDTH = 18;
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+] as const;
+
+function padColumn(text: string, width: number): string {
+  const clean = text.replace(/\s+/g, " ").trim();
+  return clean.length > width ? `${clean.slice(0, width - 1)}…` : clean.padEnd(width, " ");
 }
 
-export function formatDiscordAccountSection(discordId: string | undefined, account: DiscordAccountView | undefined): string {
-  const created = account?.createdAt;
-  return [
-    "## Discord Account",
-    `**Username:** ${account?.username ?? "Unknown"}`,
-    `**Display Name:** ${account?.displayName ?? "Unknown"}`,
-    `**User ID:** \`${discordId ?? "Unknown"}\``,
-    `**ID Ping:** ${discordId ? `<@${discordId}>` : "Unknown"}`,
-    `**Account Created:** ${created ? `${discordTimestamp(created, "D")} (${discordTimestamp(created, "R")})` : "Unknown"}`,
-  ].join("\n");
+// Discord timestamps are not rendered inside code blocks, so the side-by-side
+// table uses static text with the same day/month/year and relative-age format.
+function formatAccountAge(created: Date | undefined, now = Date.now()): string {
+  if (!created || Number.isNaN(created.getTime())) return "Unknown";
+  const seconds = Math.max(0, Math.floor((now - created.getTime()) / 1000));
+  const units: ReadonlyArray<readonly [number, string]> = [
+    [31_536_000, "year"],
+    [2_592_000, "month"],
+    [604_800, "week"],
+    [86_400, "day"],
+    [3_600, "hour"],
+    [60, "minute"],
+  ];
+  const unit = units.find(([size]) => seconds >= size);
+  if (!unit) return "just now";
+  const value = Math.floor(seconds / unit[0]);
+  return `${value} ${unit[1]}${value === 1 ? "" : "s"} ago`;
+}
+
+function formatAccountCreated(created: Date | undefined): string {
+  if (!created || Number.isNaN(created.getTime())) return "Unknown";
+  const date = `${created.getUTCDate()} ${MONTH_NAMES[created.getUTCMonth()] ?? "Unknown"} ${created.getUTCFullYear()}`;
+  return `${date} (${formatAccountAge(created)})`;
+}
+
+export interface AccountOverview {
+  roblox: {
+    username: string;
+    displayName: string;
+    userId: string;
+    createdAt: Date | undefined;
+  };
+  discord: {
+    username: string | undefined;
+    displayName: string | undefined;
+    userId: string | undefined;
+    createdAt: Date | undefined;
+  };
+  stats: {
+    badges: string;
+    usernameChanges: string;
+    createdGames: string;
+    favouriteGames: string;
+    friends: string;
+    following: string;
+    followers: string;
+    gamePasses: string;
+    items: string;
+    assetTypes: string;
+  };
+  inventoryUrl: string;
+}
+
+// Discord has no table markup, so the two accounts share one monospace block
+// and every cell is padded to keep the columns aligned on every client.
+export function formatAccountsOverview(overview: AccountOverview): string {
+  const { roblox, discord, stats } = overview;
+  const robloxLines = [
+    "Roblox Account",
+    `Username: ${roblox.username}`,
+    `Display Name: ${roblox.displayName || roblox.username}`,
+    `User ID: ${roblox.userId}`,
+    `Account Created: ${formatAccountCreated(roblox.createdAt)}`,
+  ];
+  const discordLines = [
+    "Discord Account",
+    `Username: ${discord.username ?? "Unknown"}`,
+    `Display Name: ${discord.displayName ?? "Unknown"}`,
+    `User ID: ${discord.userId ?? "Unknown"}`,
+    `Account Created: ${formatAccountCreated(discord.createdAt)}`,
+  ];
+  const rows = robloxLines.map((line, index) => `${padColumn(line, ACCOUNT_COLUMN_WIDTH)}${discordLines[index] ?? ""}`);
+  rows.push("", "");
+  const statRow = (left: string, community: string, inventory: string): string =>
+    `${padColumn(left, STAT_COLUMN_WIDTH)}${padColumn(community, STAT_COMMUNITY_WIDTH)}${inventory}`;
+  rows.push(
+    statRow(`Badges: ${stats.badges}`, "Community", "Inventory"),
+    statRow(`Username Changes: ${stats.usernameChanges}`, `Friends: ${stats.friends}`, `Game Passes: ${stats.gamePasses}`),
+    statRow(`Created Games: ${stats.createdGames}`, `Following: ${stats.following}`, `Items: ${stats.items}`),
+    statRow(`Favourite Games: ${stats.favouriteGames}`, `Followers: ${stats.followers}`, `Asset Types: ${stats.assetTypes}`),
+  );
+  const links = [
+    ...(discord.userId ? [`<@${discord.userId}>`] : []),
+    `[Open Inventory](${overview.inventoryUrl})`,
+  ];
+  return ["```", ...rows, "```", links.join(" · ")].join("\n");
 }
 
 async function attachWatcherReasons(groups: WatcherAccountGroup[], signal?: AbortSignal): Promise<void> {
@@ -1737,23 +1820,6 @@ async function backgroundCheck(
     recordPart("Secret Service Records", secret),
     recordPart("[x]Tracker Records", xtracker),
   ].join("\n\n");
-  const accountSection = [
-    `**Badges:** ${badgeCountLabel}`,
-    `**Username Changes:** ${stat(history.length)}`,
-    `**Created Games:** ${stat(gameSignals.created)}`,
-    `**Favourite Games:** ${stat(gameSignals.favorites)}`,
-    "",
-    "**Community**",
-    `**Friends:** ${stat(friends.friends)}`,
-    `**Following:** ${stat(friends.following)}`,
-    `**Followers:** ${stat(friends.followers)}`,
-    "",
-    "**Inventory**",
-    `**Game Passes:** ${inventoryStat(inventorySignals.gamepassCount, inventorySignals.gamepassCapped)}`,
-    `**Items:** ${inventoryStat(inventorySignals.itemCount, inventorySignals.itemCapped)}`,
-    `**Asset Types:** ${inventoryStat(inventorySignals.assetTypeCount, inventorySignals.itemCapped)}`,
-    `[Open Inventory](https://www.roblox.com/users/${user.id}/inventory/)`,
-  ].join("\n");
   // A lookup with nothing to report reads as None instead of a green status.
   const exploitSection = exploitWatcher.status.startsWith("🟢") && !exploitWatcher.accounts.length
     ? "None"
@@ -1780,7 +1846,33 @@ async function backgroundCheck(
   const discordCreated = discordUser?.createdAt;
   const discordRisk = discordAltRisk(discordCreated);
   const combinedRisk = combinedAltRisk(risk.score, discordRisk?.score);
-  const discordAccountSection = formatDiscordAccountSection(discordId, discordUser);
+  const accountsOverview = formatAccountsOverview({
+    roblox: {
+      username: user.name,
+      displayName: String(details.displayName ?? ""),
+      userId: user.id,
+      createdAt: created,
+    },
+    discord: {
+      username: discordUser?.username,
+      displayName: discordUser?.displayName,
+      userId: discordId,
+      createdAt: discordCreated,
+    },
+    stats: {
+      badges: badgeCountLabel,
+      usernameChanges: stat(history.length),
+      createdGames: stat(gameSignals.created),
+      favouriteGames: stat(gameSignals.favorites),
+      friends: stat(friends.friends),
+      following: stat(friends.following),
+      followers: stat(friends.followers),
+      gamePasses: inventoryStat(inventorySignals.gamepassCount, inventorySignals.gamepassCapped),
+      items: inventoryStat(inventorySignals.itemCount, inventorySignals.itemCapped),
+      assetTypes: inventoryStat(inventorySignals.assetTypeCount, inventorySignals.itemCapped),
+    },
+    inventoryUrl: `https://www.roblox.com/users/${user.id}/inventory/`,
+  });
   const altRiskSection = [
     `**Roblox Account:** ${risk.score}% — ${band}`,
     `**Discord User:** ${discordRisk ? `${discordRisk.score}% — ${discordRisk.band}` : "Unknown"}`,
@@ -1790,13 +1882,8 @@ async function backgroundCheck(
   // headers; Discord does not render headers inside embed field values.
   const sections = [
     ...(discordWatcherSection ? [discordWatcherSection] : []),
-    [
-      `**Roblox User ID:** ${user.id}`,
-      `**Account Created:** ${created ? `${discordTimestamp(created, "D")} (${discordTimestamp(created, "R")})` : "Unknown"}`,
-    ].join("\n"),
+    accountsOverview,
     ...(linkedAccounts ? [linkedAccounts] : []),
-    discordAccountSection,
-    `## Roblox Account\n${accountSection}`,
     `## Alt Risk\n${altRiskSection}${aiNote ? `\n**Roblox AI Note:** ${aiNote.slice(0, 500)}` : ""}`,
     `## Ranks & Division\n${formatGroups(groups)}`,
     `## Punishment Record\n${punishmentRecord}\n\n${watcherSections}`,

@@ -1,5 +1,8 @@
 # Change Log
 
+## 3.7.0 - 2026-11-22
+- `/background check` now shows the Roblox and Discord accounts side by side in one aligned monospace block, with each account's username, display name, user ID and creation date on matching rows. The Roblox badges, community and inventory figures sit under the same block, and the Discord mention and Open Inventory link remain below it.
+
 ## 3.6.0 - 2026-11-22
 - `/background check` now requires both `discord:<id>` and `username:<Roblox username>`. Discord IDs are used only for the report and are no longer stored; the old link table is removed.
 - Added a Discord Account section above Roblox Account showing the Discord username, display name, ID, `<@id>` mention and Hammer Time account creation date.
