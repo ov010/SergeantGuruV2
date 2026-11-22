@@ -36,6 +36,7 @@ const {
   createInfoEmbed,
   formatExploitWatcher,
   formatLinkedDiscordAccounts,
+  formatDiscordWatcherRecord,
   watcherGuildReasons,
   formatWatcherEvidence,
   createPingEmbed,
@@ -86,13 +87,22 @@ test("registers only the retained commands", () => {
   assert.equal(registered.find(({ name }) => name === "changelog").options?.length ?? 0, 0);
   assert.match(registered.find(({ name }) => name === "search").description, /every logged interaction by username, user ID, or interaction ID/);
   const backgroundOptions = registered.find(({ name }) => name === "background").options[0].options;
-  assert.equal(backgroundOptions.find(({ name }) => name === "username").required, true);
-  assert.match(backgroundOptions.find(({ name }) => name === "username").description, /Roblox username or Discord user ID/);
-  assert.equal(backgroundOptions.find(({ name }) => name === "discord").required, false);
+  assert.equal(backgroundOptions[0].name, "discord");
+  assert.equal(backgroundOptions.find(({ name }) => name === "discord").required, true);
   assert.match(backgroundOptions.find(({ name }) => name === "discord").description, /Discord user ID/);
+  assert.equal(backgroundOptions.find(({ name }) => name === "username").required, false);
+  assert.match(backgroundOptions.find(({ name }) => name === "username").description, /Roblox username/);
   const profileOptions = registered.find(({ name }) => name === "profile").options;
   assert.equal(profileOptions[0].name, "username");
   assert.equal(profileOptions[0].required, true);
+});
+
+test("Discord watcher records appear only when flagged", () => {
+  assert.equal(formatDiscordWatcherRecord("Roblox Watcher", { flagged: false, reasons: [] }), "");
+  const flagged = formatDiscordWatcherRecord("Exploit Watcher", { flagged: true, reasons: ["Condo Hub (NSFW)"] });
+  assert.match(flagged, /\*\*Exploit Watcher:\*\* 🔴 Flagged/);
+  assert.match(flagged, /↳ Condo Hub \(NSFW\)/);
+  assert.match(formatDiscordWatcherRecord("Roblox Watcher", { flagged: true, reasons: [] }), /↳ None/);
 });
 
 test("Discord IDs resolve mentions and saved links update in place", () => {

@@ -34,9 +34,11 @@ Requires Node.js 22.13+ and pnpm.
 
 The bot provides `/background check`, `/badge count`, `/api`, `/groups`,
 `/profile`, `/info`, `/changelog`, `/search`, and `/ping`. `/background check`
-accepts a Roblox username or a saved Discord user ID; pass the optional
-`discord:<id>` with a Roblox username once to save the pair, and later checks
-by ID resolve the stored Roblox ID and return the same report. It
+requires a Discord user ID and takes an optional Roblox username:
+`/background check discord:<id> username:<Roblox username>` saves the pair,
+and later `/background check discord:<id>` resolves the stored Roblox ID and
+returns the same report. The report starts with any Roblox Watcher or Exploit
+Watcher record for the Discord ID, then shows the Discord and Roblox IDs. It
 returns the account header with a headshot and the linked Discord accounts
 merged from Roblox Watcher and Exploit Watcher, account, community and
 inventory figures, Alt Risk, ranks, the punishment record (blacklist, Secret

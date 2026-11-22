@@ -1,5 +1,9 @@
 # Change Log
 
+## 3.5.0 - 2026-11-22
+- `/background check` now requires a Discord user ID and takes the Roblox username as an optional second option. `/background check discord:<id> username:<Roblox username>` saves the pair, and later `/background check discord:<id>` resolves the saved Roblox account. Existing saved links keep working.
+- The report shows the Discord user ID above the Roblox user ID, and any Roblox Watcher or Exploit Watcher records found for the Discord ID appear at the very top. Alt Risk and the Hammer Time account-created timestamp remain in the report.
+
 ## 3.4.0 - 2026-11-22
 - `/background check` accepts a Discord user ID as well as a Roblox username. Pass `discord:<id>` with a Roblox username once to save the link; later checks by ID resolve the stored Roblox account and return the same report, including the Alt Risk percentage and Hammer Time account-created timestamp.
 - Saved Discord links live in the bot database and are updated on each check, with no separate `/link` command or manual user list.

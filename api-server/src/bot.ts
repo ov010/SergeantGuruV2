@@ -1337,10 +1337,15 @@ export function watcherGuildReasons(payload: JsonObject): string[] {
   });
 }
 
-async function fetchWatcherGuildReasons(product: WatcherProduct, discordId: string, signal?: AbortSignal): Promise<string[]> {
+interface DiscordWatcherRecord {
+  flagged: boolean;
+  reasons: string[];
+}
+
+async function fetchDiscordWatcherRecord(product: WatcherProduct, discordId: string, signal?: AbortSignal): Promise<DiscordWatcherRecord> {
   const api = product === "robloxwatcher" ? ROBLOX_WATCHER_API : EXPLOIT_WATCHER_API;
   const key = product === "robloxwatcher" ? robloxWatcherApiKey : exploitWatcherApiKey;
-  if (!key) return [];
+  if (!key) return { flagged: false, reasons: [] };
   try {
     const payload = await cachedRoblox(`${product}:discord:${discordId}`, 1800, async () => {
       const response = await requestJson(`${api}/search/${encodeURIComponent(discordId)}`, {
@@ -1351,12 +1356,25 @@ async function fetchWatcherGuildReasons(product: WatcherProduct, discordId: stri
       if (!response.ok) throw new BotError(`${product === "robloxwatcher" ? "Roblox Watcher" : "Exploit Watcher"} could not complete the Discord lookup (HTTP ${response.status}).`);
       return await response.json() as JsonObject;
     }, signal);
-    return watcherGuildReasons(payload);
+    const reasons = watcherGuildReasons(payload);
+    return { flagged: payload.flagged === true || reasons.length > 0, reasons };
   } catch (error) {
     if (signal?.aborted) throw error;
     log("Watcher Discord detail lookup failed", error);
-    return [];
+    return { flagged: false, reasons: [] };
   }
+}
+
+async function fetchWatcherGuildReasons(product: WatcherProduct, discordId: string, signal?: AbortSignal): Promise<string[]> {
+  return (await fetchDiscordWatcherRecord(product, discordId, signal)).reasons;
+}
+
+// A Discord ID can be flagged even when the Roblox account it is linked to is
+// not, so these records sit above the Roblox header when they exist.
+export function formatDiscordWatcherRecord(label: string, record: DiscordWatcherRecord): string {
+  if (!record.flagged) return "";
+  const reasons = record.reasons.length ? record.reasons : ["None"];
+  return `**${label}:** 🔴 Flagged\n${reasons.map((reason) => `↳ ${reason}`).join("\n")}`;
 }
 
 async function attachWatcherReasons(groups: WatcherAccountGroup[], signal?: AbortSignal): Promise<void> {
@@ -1579,13 +1597,16 @@ async function backgroundCheck(
   username: string,
   signal: AbortSignal = new AbortController().signal,
   resolvedUser?: { id: string; name: string },
+  discordId?: string,
 ): Promise<{ embeds: EmbedBuilder[]; image?: AttachmentBuilder; mentions: string[]; user: { id: string; name: string } }> {
   const user = resolvedUser ?? await resolveUser(username, signal);
-  const [groups, details, history, friends, blacklistCards, secretCards, xtracker, robloxWatcher, exploitWatcher, avatarSignals, gameSignals, inventorySignals, avatar] = await Promise.all([
+  const [groups, details, history, friends, blacklistCards, secretCards, xtracker, robloxWatcher, exploitWatcher, discordRobloxWatcher, discordExploitWatcher, avatarSignals, gameSignals, inventorySignals, avatar] = await Promise.all([
     fetchGroups(user.id, signal), fetchProfileDetails(user.id, signal), fetchUsernameHistory(user.id, signal), fetchFriendCounts(user.id, signal),
     fetchTrelloCards(BLACKLIST_BOARD, user.name, signal), fetchTrelloCards(SECRET_SERVICE_BOARD, user.name, signal), fetchXtracker(user.id, signal),
     fetchRobloxWatcher(user.id, signal),
     fetchExploitWatcher(user.id, signal),
+    discordId ? fetchDiscordWatcherRecord("robloxwatcher", discordId, signal) : Promise.resolve({ flagged: false, reasons: [] }),
+    discordId ? fetchDiscordWatcherRecord("exploitwatcher", discordId, signal) : Promise.resolve({ flagged: false, reasons: [] }),
     fetchAvatarSignals(user.id, signal), fetchGameSignals(user.id, signal), fetchInventorySignals(user.id, signal),
     fetchRobloxAvatar(user.id, signal).catch((error) => {
       if (signal.aborted) throw error;
@@ -1741,6 +1762,13 @@ async function backgroundCheck(
   const robloxSection = robloxWatcher.status.startsWith("No linked") && !robloxWatcher.accounts.length
     ? "None"
     : robloxWatcherField || "None";
+  const discordWatcherRecords = [
+    formatDiscordWatcherRecord("Roblox Watcher", discordRobloxWatcher),
+    formatDiscordWatcherRecord("Exploit Watcher", discordExploitWatcher),
+  ].filter(Boolean);
+  const discordWatcherSection = discordWatcherRecords.length
+    ? `## Discord Watcher Record\n${discordWatcherRecords.join("\n\n")}`
+    : "";
   // The watcher labels stay small and sit directly under the punishment
   // records, without dividers between them.
   const watcherSections = [
@@ -1753,7 +1781,9 @@ async function backgroundCheck(
   // Everything lives in the description so the section titles can use Markdown
   // headers; Discord does not render headers inside embed field values.
   const sections = [
+    ...(discordWatcherSection ? [discordWatcherSection] : []),
     [
+      ...(discordId ? [`**Discord User ID:** \`${discordId}\``] : []),
       `**Roblox User ID:** ${user.id}`,
       `**Account Created:** ${created ? `${discordTimestamp(created, "D")} (${discordTimestamp(created, "R")})` : "Unknown"}`,
     ].join("\n"),
@@ -2194,30 +2224,23 @@ interface BackgroundCheckRequest {
 async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, request: BackgroundCheckRequest): Promise<void> {
   if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
   const usernameInput = request.username?.trim() ?? "";
-  const discordInput = request.discord?.trim() ?? "";
-  let discordId: string | undefined;
-  if (discordInput) {
-    discordId = parseDiscordId(discordInput);
-    if (!discordId) {
-      await interaction.reply({ embeds: [makeEmbed("Invalid Background Query", "Provide a numeric Discord user ID (15-22 digits) in the discord option.", "Warning")] });
-      return;
-    }
-  }
-  if (!usernameInput) {
-    await interaction.reply({ embeds: [makeEmbed("Invalid Background Query", "Provide a Roblox username or Discord user ID.", "Warning")] });
+  const discordId = parseDiscordId(request.discord?.trim() ?? "");
+  if (!discordId) {
+    await interaction.reply({ embeds: [makeEmbed("Invalid Background Query", "Provide a numeric Discord user ID (15-22 digits) in the discord option.", "Warning")] });
     return;
   }
-  const discordQuery = parseDiscordId(usernameInput);
-  if (discordQuery && discordId && discordQuery !== discordId) {
-    await interaction.reply({ embeds: [makeEmbed("Invalid Background Query", "The username and discord options point to different Discord user IDs. Pass a Roblox username with discord, or the same ID in both.", "Warning")] });
+  const usernameDiscordId = usernameInput ? parseDiscordId(usernameInput) : undefined;
+  if (usernameDiscordId && usernameDiscordId !== discordId) {
+    await interaction.reply({ embeds: [makeEmbed("Invalid Background Query", "The Discord ID in username does not match the required discord option. Pass the same ID in both, or provide the Roblox username.", "Warning")] });
     return;
   }
   let normalized: string;
   let link: DiscordLink | undefined;
-  if (discordQuery) {
-    link = getDiscordLink(discordQuery);
+  const lookupByDiscord = !usernameInput || Boolean(usernameDiscordId);
+  if (lookupByDiscord) {
+    link = getDiscordLink(discordId);
     if (!link) {
-      await interaction.reply({ embeds: [makeEmbed("Invalid Background Query", `No Roblox account is saved for Discord user ID \`${discordQuery}\`. Run \`/background check username:<Roblox username> discord:${discordQuery}\` once to save the link.`, "Warning")] });
+      await interaction.reply({ embeds: [makeEmbed("Invalid Background Query", `No Roblox account is saved for Discord user ID \`${discordId}\`. Run \`/background check discord:${discordId} username:<Roblox username>\` once to save the link.`, "Warning")] });
       return;
     }
     normalized = link.robloxUsername;
@@ -2244,11 +2267,11 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, req
   try {
     const outcome = await Promise.race([
       (async () => {
-        if (discordQuery && link) {
+        if (lookupByDiscord && link) {
           const resolved = await resolveUserById(link.robloxUserId, controller.signal);
-          return { kind: "ready" as const, result: await backgroundCheck(resolved.name, controller.signal, resolved) };
+          return { kind: "ready" as const, result: await backgroundCheck(resolved.name, controller.signal, resolved, discordId) };
         }
-        return { kind: "ready" as const, result: await backgroundCheck(normalized, controller.signal) };
+        return { kind: "ready" as const, result: await backgroundCheck(normalized, controller.signal, undefined, discordId) };
       })(),
       timedOut,
     ]);
@@ -2260,12 +2283,10 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, req
       });
       return;
     }
-    if (discordId) {
-      try {
-        linkDiscordAccount(discordId, outcome.result.user.id, outcome.result.user.name, interaction.user.id);
-      } catch (error) {
-        log("Unable to save the Discord link", error);
-      }
+    try {
+      linkDiscordAccount(discordId, outcome.result.user.id, outcome.result.user.name, interaction.user.id);
+    } catch (error) {
+      log("Unable to save the Discord link", error);
     }
     await interaction.editReply({
       embeds: outcome.result.embeds,
@@ -2501,12 +2522,12 @@ export const commands = [
       .setName("check")
       .setDescription("Run a full background check with a badge chart.")
       .addStringOption((option) => option
-        .setName("username")
-        .setDescription("The Roblox username or Discord user ID to check")
+        .setName("discord")
+        .setDescription("The Discord user ID this check is for")
         .setRequired(true))
       .addStringOption((option) => option
-        .setName("discord")
-        .setDescription("Discord user ID to save with this Roblox account (optional)")
+        .setName("username")
+        .setDescription("Roblox username (omit when this Discord ID already has a saved link)")
         .setRequired(false))),
   new SlashCommandBuilder()
     .setName("badge")
@@ -2584,8 +2605,8 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
   commandGateOutcomes.set(interaction, "allowed");
   if (name === "background" && interaction.options.getSubcommand() === "check") {
     return sendBackgroundCheck(interaction, {
-      username: interaction.options.getString("username"),
       discord: interaction.options.getString("discord"),
+      username: interaction.options.getString("username"),
     });
   }
   if (name === "badge" && interaction.options.getSubcommand() === "count") return sendBadgeCount(interaction, interaction.options.getString("username", true));
