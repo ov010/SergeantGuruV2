@@ -55,7 +55,7 @@ const EXPLOIT_WATCHER_API = "https://api.robloxwatcher.com/api/v1/exploitwatcher
 const BLACKLIST_BOARD = "gsCa53Bt";
 const SECRET_SERVICE_BOARD = "xgGFFrH3";
 const NONE = "None";
-const SECTION_DIVIDER = "────────────────────────";
+const SECTION_DIVIDER = "═".repeat(40);
 const MAX_RATE_LIMIT_RETRIES = 5;
 const BACKGROUND_CHECK_TIMEOUT_MS = 60_000;
 const DATA_DIR = fileURLToPath(new URL("../bot/data/", import.meta.url));
@@ -942,18 +942,22 @@ async function fetchGameSignals(userId: string, signal?: AbortSignal): Promise<G
 
 interface InventorySignals {
   itemCount: number | null;
+  itemCapped: boolean;
   assetTypeCount: number | null;
   gamepassCount: number | null;
+  gamepassCapped: boolean;
   private: boolean;
 }
 
-const INVENTORY_PAGE_LIMIT = 10;
-const GAMEPASS_PAGE_LIMIT = 5;
+// One page holds 100 items, so these allow 6,000 inventory items and 2,000 game
+// passes before the count is shown as a lower bound.
+const INVENTORY_PAGE_LIMIT = 60;
+const GAMEPASS_PAGE_LIMIT = 20;
 
 async function fetchInventorySignals(userId: string, signal?: AbortSignal): Promise<InventorySignals> {
   try {
     return await cachedRoblox(`inventory_signals:${userId}`, 900, async () => {
-      const result: InventorySignals = { itemCount: null, assetTypeCount: null, gamepassCount: null, private: false };
+      const result: InventorySignals = { itemCount: null, itemCapped: false, assetTypeCount: null, gamepassCount: null, gamepassCapped: false, private: false };
       const collect = async (filter: string, maxPages: number) => {
         let count = 0;
         const types = new Set<string>();
@@ -968,7 +972,7 @@ async function fetchInventorySignals(userId: string, signal?: AbortSignal): Prom
             headers: { "x-api-key": robloxApiKey! },
             signal,
           }, true);
-          if (response.status === 403) return { count, types: types.size, denied: true, available: false };
+          if (response.status === 403) return { count, types: types.size, denied: true, available: false, capped: false };
           if (!response.ok) {
             available = false;
             break;
@@ -983,7 +987,7 @@ async function fetchInventorySignals(userId: string, signal?: AbortSignal): Prom
           pageToken = String(payload.nextPageToken ?? "");
           pages += 1;
         } while (pageToken && pages < maxPages);
-        return { count, types: types.size, denied: false, available };
+        return { count, types: types.size, denied: false, available, capped: Boolean(pageToken) };
       };
 
       const [inventory, gamepasses] = await Promise.allSettled([
@@ -994,6 +998,7 @@ async function fetchInventorySignals(userId: string, signal?: AbortSignal): Prom
         if (inventory.value.denied) result.private = true;
         else if (inventory.value.available) {
           result.itemCount = inventory.value.count;
+          result.itemCapped = inventory.value.capped;
           result.assetTypeCount = inventory.value.types;
         }
       } else if (signal?.aborted) {
@@ -1003,7 +1008,10 @@ async function fetchInventorySignals(userId: string, signal?: AbortSignal): Prom
       }
       if (gamepasses.status === "fulfilled") {
         if (gamepasses.value.denied) result.private = true;
-        else if (gamepasses.value.available) result.gamepassCount = gamepasses.value.count;
+        else if (gamepasses.value.available) {
+          result.gamepassCount = gamepasses.value.count;
+          result.gamepassCapped = gamepasses.value.capped;
+        }
       } else if (signal?.aborted) {
         throw gamepasses.reason;
       } else {
@@ -1014,7 +1022,7 @@ async function fetchInventorySignals(userId: string, signal?: AbortSignal): Prom
   } catch (error) {
     if (signal?.aborted) throw error;
     log("Inventory signals unavailable", error);
-    return { itemCount: null, assetTypeCount: null, gamepassCount: null, private: false };
+    return { itemCount: null, itemCapped: false, assetTypeCount: null, gamepassCount: null, gamepassCapped: false, private: false };
   }
 }
 
@@ -1591,8 +1599,8 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
   const band = formatRiskBand(risk.score);
   const stat = (value: number | null | undefined): string =>
     value === null || value === undefined ? "N/A" : value.toLocaleString("en-US");
-  const inventoryStat = (value: number | null | undefined): string =>
-    inventorySignals.private ? "Private" : stat(value);
+  const inventoryStat = (value: number | null | undefined, capped = false): string =>
+    inventorySignals.private ? "Private" : value === null || value === undefined ? "N/A" : `${value.toLocaleString("en-US")}${capped ? "+" : ""}`;
   const badgeCountLabel = badgeDataAvailable ? stat(badges.length) : inventoryPrivate ? "Private" : "N/A";
   const recordPart = (label: string, text: string): string =>
     `**${label}**\n${text.length > 280 ? `${text.slice(0, 279)}…` : text}`;
@@ -1601,51 +1609,45 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
     recordPart("Secret Service", secret),
     recordPart("[x]Tracker (external)", xtracker),
   ].join("\n\n");
-  // Three compact inline columns keep the account figures scannable instead of
-  // cramming them into one dense block; wide sections stay full width.
-  const accountStats = [
-    {
-      name: "Account",
-      value: [
-        `**Badges** ${badgeCountLabel}`,
-        `**Username Changes** ${stat(history.length)}`,
-        `**Created Games** ${stat(gameSignals.created)}`,
-        `**Favourite Games** ${stat(gameSignals.favorites)}`,
-      ].join("\n"),
-      inline: true,
-    },
-    {
-      name: "Community",
-      value: [
-        `**Friends** ${stat(friends.friends)}`,
-        `**Following** ${stat(friends.following)}`,
-        `**Followers** ${stat(friends.followers)}`,
-      ].join("\n"),
-      inline: true,
-    },
-    {
-      name: "Inventory",
-      value: [
-        `**Game Passes** ${inventoryStat(inventorySignals.gamepassCount)}`,
-        `**Items** ${inventoryStat(inventorySignals.itemCount)}`,
-        `**Asset Types** ${inventoryStat(inventorySignals.assetTypeCount)}`,
-        `[Open Inventory](https://www.roblox.com/users/${user.id}/inventory/)`,
-      ].join("\n"),
-      inline: true,
-    },
+  const accountStats = {
+    name: "Roblox Account",
+    value: [
+      `${SECTION_DIVIDER}`,
+      `**Badges** ${badgeCountLabel}`,
+      `**Username Changes** ${stat(history.length)}`,
+      `**Created Games** ${stat(gameSignals.created)}`,
+      `**Favourite Games** ${stat(gameSignals.favorites)}`,
+      "",
+      "**Community**",
+      `**Friends** ${stat(friends.friends)}`,
+      `**Following** ${stat(friends.following)}`,
+      `**Followers** ${stat(friends.followers)}`,
+      "",
+      "**Inventory**",
+      `**Game Passes** ${inventoryStat(inventorySignals.gamepassCount, inventorySignals.gamepassCapped)}`,
+      `**Items** ${inventoryStat(inventorySignals.itemCount, inventorySignals.itemCapped)}`,
+      `**Asset Types** ${inventoryStat(inventorySignals.assetTypeCount, inventorySignals.itemCapped)}`,
+      `[Open Inventory](https://www.roblox.com/users/${user.id}/inventory/)`,
+    ].join("\n"),
+    inline: false,
+  };
+  // Every top-level section starts with a full-width divider, so the account
+  // header blocks are separated the same way the fields are.
+  const descriptionBlocks = [
+    [
+      `**Roblox User ID** \`${user.id}\``,
+      `**Account Created** ${created ? `${discordTimestamp(created, "D")} (${discordTimestamp(created, "R")})` : "Unknown"}`,
+    ].join("\n"),
+    ...(linkedAccounts ? [linkedAccounts] : []),
   ];
   const embed = new EmbedBuilder()
     .setTitle(user.name)
     .setURL(`https://www.roblox.com/users/${user.id}/profile`)
-    .setDescription([
-      `**Roblox User ID** \`${user.id}\``,
-      `**Account Created** ${created ? `${discordTimestamp(created, "D")} (${discordTimestamp(created, "R")})` : "Unknown"}`,
-      ...(linkedAccounts ? [`\n${linkedAccounts}`] : []),
-    ].join("\n"))
+    .setDescription(descriptionBlocks.map((block) => `${SECTION_DIVIDER}\n${block}`).join("\n"))
     .setColor(embedColor("Background Check"));
   if (avatar) embed.setThumbnail(avatar.url);
   embed.addFields(
-    ...accountStats,
+    accountStats,
     {
       name: "Alt Risk",
       value: `${SECTION_DIVIDER}\n**${risk.score}% — ${band}**${aiNote ? `\n${aiNote.slice(0, 500)}` : ""}`.slice(0, 1024),

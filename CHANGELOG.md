@@ -1,5 +1,9 @@
 # Change Log
 
+## 3.1.7 - 2026-11-22
+- `/background check` now separates every section with a full-width `═` divider and groups the account, community and inventory figures under one Roblox Account section.
+- Inventory item and game-pass counts no longer stop at 1,000 and 500: they page up to 6,000 items and 2,000 game passes, and show a `+` when a count is still capped.
+
 ## 3.1.6 - 2026-11-22
 - The linked-accounts header now shows only the account count and deduplicated mentions; link sources, watcher names and flag labels stay in the watcher sections. Evidence puts the account mention on its own line with the server details beneath it, and "last seen" uses Discord relative timestamps.
 
