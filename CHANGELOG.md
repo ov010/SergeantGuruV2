@@ -1,5 +1,9 @@
 # Change Log
 
+## 2.11.0 - 2026-11-22
+- Users can run one access-controlled command per minute; the old 10-per-minute bucket is gone. The owner is exempt.
+- `/background check`, `/groups`, `/records`, and `/badge count` each have their own 5-per-UTC-day budget. The existing 50-per-day overall cap still applies, and the owner is exempt from both.
+
 ## 2.10.1 - 2026-11-22
 - `/admin` is now owner-only: anyone else gets Access Denied instead of the admin panel. The panel's menu, modal, and color handlers already checked the owner, but the command that opened the panel did not.
 

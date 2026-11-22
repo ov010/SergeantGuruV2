@@ -157,6 +157,14 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (discord_user_id, usage_day)
   );
+  CREATE TABLE IF NOT EXISTS command_daily_usage (
+    discord_user_id TEXT NOT NULL,
+    usage_day TEXT NOT NULL,
+    command_name TEXT NOT NULL,
+    command_count INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (discord_user_id, usage_day, command_name)
+  );
   INSERT OR IGNORE INTO authorized_users (discord_user_id, authorized_by)
   VALUES ('${OWNER_ID}', '${OWNER_ID}');
 `);
@@ -170,7 +178,7 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds],
   allowedMentions: { parse: [] },
 });
-const userRequests = new Map<string, number[]>();
+const lastCommandAt = new Map<string, number>();
 const badgeTrackingByMessage = new Map<string, { requesterId: string; text: string }>();
 const interactionContext = new AsyncLocalStorage<string>();
 
@@ -1037,18 +1045,6 @@ async function fetchBadges(userId: string, signal?: AbortSignal): Promise<JsonOb
   return all;
 }
 
-function validateBadgeRate(userId: string): boolean {
-  const now = Date.now();
-  const recent = (userRequests.get(userId) ?? []).filter((time) => now - time < 60_000);
-  if (recent.length >= 10) {
-    userRequests.set(userId, recent);
-    return false;
-  }
-  recent.push(now);
-  userRequests.set(userId, recent);
-  return true;
-}
-
 function formatRiskBand(score: number): string {
   if (score >= 70) return "High";
   if (score >= 40) return "Medium";
@@ -1440,6 +1436,80 @@ export function resetDailyCommandUsage(userId: string): void {
   db.prepare("DELETE FROM daily_command_usage WHERE discord_user_id = ?").run(userId);
 }
 
+// One access-controlled command per minute per user; the owner is exempt.
+export const COMMAND_COOLDOWN_MS = 60_000;
+
+export function commandCooldownRemaining(userId: string, now = Date.now()): number {
+  const last = lastCommandAt.get(userId);
+  if (last === undefined) return 0;
+  return Math.max(0, COMMAND_COOLDOWN_MS - (now - last));
+}
+
+export function recordCommandUse(userId: string, now = Date.now()): void {
+  lastCommandAt.set(userId, now);
+}
+
+export function resetCommandCooldown(userId: string): void {
+  lastCommandAt.delete(userId);
+}
+
+export interface CommandDailyUsage {
+  command: string;
+  label: string;
+  allowed: boolean;
+  used: number;
+  limit: number;
+  remaining: number;
+  resetAt: Date;
+}
+
+// Lookup commands keep a separate daily budget per command.
+export const COMMAND_DAILY_LIMITS: Readonly<Record<string, { limit: number; label: string }>> = {
+  background: { limit: 5, label: "/background check" },
+  badge: { limit: 5, label: "/badge count" },
+  groups: { limit: 5, label: "/groups" },
+  records: { limit: 5, label: "/records" },
+};
+
+export function commandDailyUsage(userId: string, commandName: string, now = new Date()): CommandDailyUsage {
+  const config = COMMAND_DAILY_LIMITS[commandName] ?? { limit: 0, label: `/${commandName}` };
+  const row = db.prepare(
+    "SELECT command_count AS count FROM command_daily_usage WHERE discord_user_id = ? AND usage_day = ? AND command_name = ?",
+  ).get(userId, utcDay(now), commandName) as { count: number } | undefined;
+  const used = Number(row?.count ?? 0);
+  return {
+    command: commandName,
+    label: config.label,
+    allowed: used < config.limit,
+    used,
+    limit: config.limit,
+    remaining: Math.max(0, config.limit - used),
+    resetAt: nextUtcMidnight(now),
+  };
+}
+
+export function consumeCommandDailyUsage(userId: string, commandName: string, now = new Date()): CommandDailyUsage {
+  const usage = commandDailyUsage(userId, commandName, now);
+  if (!usage.allowed) return usage;
+  db.prepare(`
+    INSERT INTO command_daily_usage (discord_user_id, usage_day, command_name, command_count)
+    VALUES (?, ?, ?, 1)
+    ON CONFLICT(discord_user_id, usage_day, command_name) DO UPDATE SET
+      command_count = command_count + 1,
+      updated_at = CURRENT_TIMESTAMP
+  `).run(userId, utcDay(now), commandName);
+  return {
+    ...usage,
+    allowed: true,
+    used: usage.used + 1,
+    remaining: Math.max(0, usage.remaining - 1),
+  };
+}
+
+export function resetCommandDailyUsage(userId: string): void {
+  db.prepare("DELETE FROM command_daily_usage WHERE discord_user_id = ?").run(userId);
+}
+
 function createDailyLimitEmbed(usage: DailyCommandUsage): EmbedBuilder {
   return makeEmbed(
     "Daily Limit Reached",
@@ -1448,6 +1518,26 @@ function createDailyLimitEmbed(usage: DailyCommandUsage): EmbedBuilder {
   ).addFields(
     { name: "Used Today", value: `${usage.used}/${usage.limit}`, inline: true },
     { name: "Resets", value: discordTimestamp(usage.resetAt, "D"), inline: true },
+  );
+}
+
+function createCommandDailyLimitEmbed(usage: CommandDailyUsage): EmbedBuilder {
+  return makeEmbed(
+    "Daily Limit Reached",
+    `You have used all **${usage.limit}** ${usage.label} commands for today. Your limit resets ${discordTimestamp(usage.resetAt, "R")}.`,
+    "Warning",
+  ).addFields(
+    { name: "Used Today", value: `${usage.used}/${usage.limit}`, inline: true },
+    { name: "Resets", value: discordTimestamp(usage.resetAt, "D"), inline: true },
+  );
+}
+
+function createCooldownEmbed(remainingMs: number): EmbedBuilder {
+  const seconds = Math.max(1, Math.ceil(remainingMs / 1000));
+  return makeEmbed(
+    "Rate Limit Exceeded",
+    `You can run another command in **${seconds}s**. Each user can run one command per minute.`,
+    "Warning",
   );
 }
 
@@ -1608,10 +1698,6 @@ interface BackgroundCheckRequest {
 
 async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, request: BackgroundCheckRequest): Promise<void> {
   if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
-  if (!validateBadgeRate(interaction.user.id)) {
-    await interaction.reply({ embeds: [makeEmbed("Rate Limit Exceeded", "You've reached the rate limit. Please wait before trying again. (0 requests remaining in the next minute)", "Warning")] });
-    return;
-  }
   const usernameInput = request.username?.trim() ?? "";
   if (!usernameInput) {
     await interaction.reply({ embeds: [makeEmbed("Invalid Background Query", "Provide a Roblox username.", "Warning")] });
@@ -1687,10 +1773,6 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, req
 
 async function sendBadgeCount(interaction: ChatInputCommandInteraction, username: string): Promise<void> {
   if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
-  if (!validateBadgeRate(interaction.user.id)) {
-    await interaction.reply({ embeds: [makeEmbed("Rate Limit Exceeded", "You've reached the rate limit. Please wait before trying again.", "Warning")] });
-    return;
-  }
   let normalized: string;
   try {
     normalized = validateRobloxUsername(username);
@@ -1740,10 +1822,6 @@ async function sendBadgeCount(interaction: ChatInputCommandInteraction, username
 
 async function sendGroups(interaction: ChatInputCommandInteraction, username: string): Promise<void> {
   if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
-  if (!validateBadgeRate(interaction.user.id)) {
-    await interaction.reply({ embeds: [makeEmbed("Rate Limit Exceeded", "You've reached the rate limit. Please wait before trying again.", "Warning")] });
-    return;
-  }
   let normalized: string;
   try { normalized = validateRobloxUsername(username); }
   catch (error) { await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] }); return; }
@@ -1759,10 +1837,6 @@ async function sendGroups(interaction: ChatInputCommandInteraction, username: st
 
 async function sendRecords(interaction: ChatInputCommandInteraction, username: string): Promise<void> {
   if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
-  if (!validateBadgeRate(interaction.user.id)) {
-    await interaction.reply({ embeds: [makeEmbed("Rate Limit Exceeded", "You've reached the rate limit. Please wait before trying again.", "Warning")] });
-    return;
-  }
   let normalized: string;
   try { normalized = validateRobloxUsername(username); }
   catch (error) { await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] }); return; }
@@ -1777,10 +1851,6 @@ async function sendRecords(interaction: ChatInputCommandInteraction, username: s
 
 async function sendProfileLink(interaction: ChatInputCommandInteraction, username: string): Promise<void> {
   if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
-  if (!validateBadgeRate(interaction.user.id)) {
-    await interaction.reply({ embeds: [makeEmbed("Rate Limit Exceeded", "You've reached the rate limit. Please wait before trying again.", "Warning")] });
-    return;
-  }
   let normalized: string;
   try { normalized = validateRobloxUsername(username); }
   catch (error) { await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] }); return; }
@@ -1979,17 +2049,36 @@ export const commands = [
 
 async function handleCommand(interaction: ChatInputCommandInteraction): Promise<void> {
   const name = interaction.commandName;
-  if (ACCESS_CONTROLLED_COMMANDS.has(name) && !isCommandAuthorized(interaction)) {
+  const controlled = ACCESS_CONTROLLED_COMMANDS.has(name);
+  const owner = isOwner(interaction.user.id);
+  if (controlled && !isCommandAuthorized(interaction)) {
     commandGateOutcomes.set(interaction, "denied");
     return replyDenied(interaction);
   }
-  if (ACCESS_CONTROLLED_COMMANDS.has(name) && !isOwner(interaction.user.id)) {
+  if (controlled && !owner) {
+    const waitMs = commandCooldownRemaining(interaction.user.id);
+    if (waitMs > 0) {
+      commandGateOutcomes.set(interaction, "limited");
+      await interaction.reply({ embeds: [createCooldownEmbed(waitMs)] });
+      return;
+    }
+    const perCommand = COMMAND_DAILY_LIMITS[name];
+    if (perCommand) {
+      const commandUsage = commandDailyUsage(interaction.user.id, name);
+      if (!commandUsage.allowed) {
+        commandGateOutcomes.set(interaction, "limited");
+        await interaction.reply({ embeds: [createCommandDailyLimitEmbed(commandUsage)] });
+        return;
+      }
+    }
     const usage = consumeDailyCommand(interaction.user.id);
     if (!usage.allowed) {
       commandGateOutcomes.set(interaction, "limited");
       await interaction.reply({ embeds: [createDailyLimitEmbed(usage)] });
       return;
     }
+    if (perCommand) consumeCommandDailyUsage(interaction.user.id, name);
+    recordCommandUse(interaction.user.id);
   }
   commandGateOutcomes.set(interaction, "allowed");
   if (name === "background" && interaction.options.getSubcommand() === "check") {
@@ -2405,8 +2494,8 @@ function createDataAccessEmbed(): EmbedBuilder {
 function createDataBotEmbed(status: DataStatus): EmbedBuilder {
   const guilds = client.guilds.cache;
   const memberCount = guilds.reduce((sum, guild) => sum + (guild.memberCount ?? 0), 0);
-  const recentRequestCount = [...userRequests.values()]
-    .reduce((sum, timestamps) => sum + timestamps.filter((timestamp) => timestamp > Date.now() - 60_000).length, 0);
+  const recentCommandUsers = [...lastCommandAt.values()]
+    .filter((timestamp) => timestamp > Date.now() - COMMAND_COOLDOWN_MS).length;
   return makeEmbed("Bot Data", "Runtime, Discord gateway, and live integration status.", "Info").addFields(
     {
       name: "Runtime",
@@ -2443,7 +2532,7 @@ function createDataBotEmbed(status: DataStatus): EmbedBuilder {
     {
       name: "Activity",
       value: [
-        `Requests (last minute): ${recentRequestCount}`,
+        `Users in cooldown (last minute): ${recentCommandUsers}`,
         `Active badge results: ${badgeTrackingByMessage.size}`,
       ].join("\n"),
       inline: true,
@@ -2731,11 +2820,10 @@ process.once("SIGINT", () => void shutdown("SIGINT"));
 const cleanupTimer = setInterval(() => {
   void cleanupCache().catch((error) => log("Cache cleanup failed", error));
   db.prepare("DELETE FROM daily_command_usage WHERE usage_day < ?").run(utcDay(new Date(Date.now() - 31 * 24 * 60 * 60 * 1000)));
-  const cutoff = Date.now() - 60 * 60 * 1000;
-  for (const [id, times] of userRequests) {
-    const remaining = times.filter((time) => time > cutoff);
-    if (remaining.length) userRequests.set(id, remaining);
-    else userRequests.delete(id);
+  db.prepare("DELETE FROM command_daily_usage WHERE usage_day < ?").run(utcDay(new Date(Date.now() - 31 * 24 * 60 * 60 * 1000)));
+  const cooldownCutoff = Date.now() - COMMAND_COOLDOWN_MS;
+  for (const [id, at] of lastCommandAt) {
+    if (at <= cooldownCutoff) lastCommandAt.delete(id);
   }
   const paginationCutoff = Date.now() - PAGINATION_TTL_MS;
   for (const [token, session] of paginationSessions) {

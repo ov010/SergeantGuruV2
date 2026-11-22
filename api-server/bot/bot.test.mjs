@@ -42,6 +42,14 @@ const {
   DAILY_COMMAND_LIMIT,
   consumeDailyCommand,
   resetDailyCommandUsage,
+  COMMAND_COOLDOWN_MS,
+  COMMAND_DAILY_LIMITS,
+  commandCooldownRemaining,
+  recordCommandUse,
+  resetCommandCooldown,
+  commandDailyUsage,
+  consumeCommandDailyUsage,
+  resetCommandDailyUsage,
   DATA_VIEW_LABELS,
   PAGE_LINE_LIMIT,
   buildPagination,
@@ -248,7 +256,7 @@ test("/data opens separate views for access, bot/API, and colors", () => {
   }
 });
 
-test("every command except the public admin panel requires granted access", () => {
+test("every command except the owner-only admin panel requires granted access", () => {
   const registered = commands.map((command) => command.toJSON().name);
   assert.deepEqual(
     registered.filter((name) => !ACCESS_CONTROLLED_COMMANDS.has(name)),
@@ -283,6 +291,50 @@ test("authorized users get exactly 50 commands per UTC day", () => {
     assert.equal(nextDay.remaining, DAILY_COMMAND_LIMIT - 1);
   } finally {
     resetDailyCommandUsage(userId);
+  }
+});
+
+test("lookup commands have separate five-per-day budgets", () => {
+  const userId = "999999999999999998";
+  const day = new Date("2099-03-01T12:00:00Z");
+  resetCommandDailyUsage(userId);
+  try {
+    for (let used = 1; used <= 5; used += 1) {
+      const usage = consumeCommandDailyUsage(userId, "background", day);
+      assert.equal(usage.allowed, true, `background use ${used} should be allowed`);
+      assert.equal(usage.used, used);
+      assert.equal(usage.limit, 5);
+      assert.equal(usage.remaining, 5 - used);
+    }
+    const blocked = consumeCommandDailyUsage(userId, "background", day);
+    assert.equal(blocked.allowed, false, "the sixth background check must be blocked");
+    assert.equal(blocked.used, 5);
+    assert.equal(blocked.remaining, 0);
+
+    assert.equal(commandDailyUsage(userId, "badge", day).used, 0, "each command has its own budget");
+    assert.equal(consumeCommandDailyUsage(userId, "groups", day).allowed, true);
+    assert.deepEqual(Object.keys(COMMAND_DAILY_LIMITS).sort(), ["background", "badge", "groups", "records"]);
+
+    const nextDay = consumeCommandDailyUsage(userId, "background", new Date("2099-03-02T00:00:01Z"));
+    assert.equal(nextDay.allowed, true, "the per-command quota resets at UTC midnight");
+    assert.equal(nextDay.used, 1);
+  } finally {
+    resetCommandDailyUsage(userId);
+  }
+});
+
+test("commands share a strict one-minute cooldown per user", () => {
+  const userId = "999999999999999997";
+  resetCommandCooldown(userId);
+  try {
+    assert.equal(COMMAND_COOLDOWN_MS, 60_000);
+    assert.equal(commandCooldownRemaining(userId, 1_000_000), 0);
+    recordCommandUse(userId, 1_000_000);
+    assert.equal(commandCooldownRemaining(userId, 1_000_001), 59_999);
+    assert.equal(commandCooldownRemaining(userId, 1_059_999), 1);
+    assert.equal(commandCooldownRemaining(userId, 1_060_000), 0);
+  } finally {
+    resetCommandCooldown(userId);
   }
 });
 
