@@ -37,7 +37,7 @@ const {
   formatExploitWatcher,
   formatLinkedDiscordAccounts,
   formatDiscordWatcherRecord,
-  formatAccountsOverview,
+  formatDiscordAccountSection,
   watcherGuildReasons,
   formatWatcherEvidence,
   createPingEmbed,
@@ -88,7 +88,8 @@ test("registers only the retained commands", () => {
   assert.equal(registered.find(({ name }) => name === "changelog").options?.length ?? 0, 0);
   assert.match(registered.find(({ name }) => name === "search").description, /every logged interaction by username, user ID, or interaction ID/);
   const backgroundOptions = registered.find(({ name }) => name === "background").options[0].options;
-  assert.equal(backgroundOptions[0].name, "discord");
+  assert.equal(backgroundOptions[0].name, "username");
+  assert.equal(backgroundOptions[1].name, "discord");
   assert.equal(backgroundOptions.find(({ name }) => name === "discord").required, true);
   assert.match(backgroundOptions.find(({ name }) => name === "discord").description, /Discord user ID/);
   assert.equal(backgroundOptions.find(({ name }) => name === "username").required, true);
@@ -106,46 +107,18 @@ test("Discord watcher records appear only when flagged", () => {
   assert.match(formatDiscordWatcherRecord("Roblox Watcher", { flagged: true, reasons: [] }), /↳ None/);
 });
 
-test("Roblox and Discord accounts render side by side with the stats below", () => {
-  const section = formatAccountsOverview({
-    roblox: {
-      username: "Guru_Guru1X",
-      displayName: "Guru_Guru1X",
-      userId: "3824104837",
-      createdAt: new Date("2022-08-21T00:00:00.000Z"),
-    },
-    discord: {
-      username: "guru_guru1x",
-      displayName: "Guru_Guru1X",
-      userId: "1186370477606838375",
-      createdAt: new Date("2023-12-18T00:00:00.000Z"),
-    },
-    stats: {
-      badges: "788",
-      usernameChanges: "0",
-      createdGames: "0",
-      favouriteGames: "4",
-      friends: "27",
-      following: "0",
-      followers: "0",
-      gamePasses: "30",
-      items: "1,465",
-      assetTypes: "44",
-    },
-    inventoryUrl: "https://www.roblox.com/users/3824104837/inventory/",
+test("the Discord account section shows identity, ping, and Hammer Time creation", () => {
+  const section = formatDiscordAccountSection("987654321098765432", {
+    username: "guru",
+    displayName: "Guru",
+    createdAt: new Date("2020-01-02T03:04:05.000Z"),
   });
-  const lines = section.split("\n");
-  assert.equal(lines[0], "```");
-  assert.match(lines[1], /Roblox Account\s+Discord Account/);
-  assert.match(lines[2], /Username: Guru_Guru1X\s+Username: guru_guru1x/);
-  assert.match(lines[3], /Display Name: Guru_Guru1X\s+Display Name: Guru_Guru1X/);
-  assert.match(lines[4], /User ID: 3824104837\s+User ID: 1186370477606838375/);
-  assert.match(lines[5], /Account Created: 21 August 2022 \([^)]+\)\s+Account Created: 18 December 2023 \([^)]+\)/);
-  assert.match(section, /Badges: 788\s+Community\s+Inventory/);
-  assert.match(section, /Username Changes: 0\s+Friends: 27\s+Game Passes: 30/);
-  assert.match(section, /Created Games: 0\s+Following: 0\s+Items: 1,465/);
-  assert.match(section, /Favourite Games: 4\s+Followers: 0\s+Asset Types: 44/);
-  assert.match(section, /<@1186370477606838375> · \[Open Inventory\]\(https:\/\/www\.roblox\.com\/users\/3824104837\/inventory\/\)/);
+  assert.match(section, /## Discord Account/);
+  assert.match(section, /\*\*Username:\*\* guru/);
+  assert.match(section, /\*\*Display Name:\*\* Guru/);
+  assert.match(section, /\*\*User ID:\*\* `987654321098765432`/);
+  assert.match(section, /\*\*ID Ping:\*\* <@987654321098765432>/);
+  assert.match(section, /\*\*Account Created:\*\* <t:\d+:D> \(<t:\d+:R>\)/);
 });
 
 test("Discord IDs resolve raw IDs and mentions", () => {

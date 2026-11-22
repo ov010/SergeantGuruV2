@@ -1,5 +1,9 @@
 # Change Log
 
+## 3.8.0 - 2026-11-22
+- Reverted the 3.7.0 side-by-side account table to the previous layout: the Discord Account section is at the top and the Roblox Account section follows below it.
+- `/background check` now lists `username` before `discord`, so the command reads `/background check username:<Roblox username> discord:<id>`.
+
 ## 3.7.0 - 2026-11-22
 - `/background check` now shows the Roblox and Discord accounts side by side in one aligned monospace block, with each account's username, display name, user ID and creation date on matching rows. The Roblox badges, community and inventory figures sit under the same block, and the Discord mention and Open Inventory link remain below it.
 
