@@ -1,5 +1,9 @@
 # Change Log
 
+## 3.1.1 - 2026-11-22
+- `/background check` now lists the Exploit Watcher Discord accounts directly under the Roblox user ID and creation date, instead of at the bottom inside the Exploit Watcher section.
+- Fixed Exploit Watcher showing "Not flagged" for accounts whose linked Discord accounts are flagged but which have no injections of their own; the flagged linked accounts now mark the lookup as flagged.
+
 ## 3.1.0 - 2026-11-22
 - Added an Exploit Watcher lookup to `/background check`: injection totals, the games that were injected, and linked Discord accounts with their flag state. `/api` and `/info` report the integration too. Set `EXPLOIT_WATCHER_API_KEY` to enable it.
 - The empty Roblox Watcher result now says the lookup found nothing in its NSFW/condo server database, instead of implying the account was unknown.

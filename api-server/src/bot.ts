@@ -1198,28 +1198,38 @@ const EXPLOIT_WATCHER_GAME_LIMIT = 5;
 
 // Exploit Watcher lists the injection history for a Roblox account and the
 // Discord accounts linked to it, flagging each side separately.
+export function formatExploitWatcherAccounts(payload: JsonObject): string {
+  const accounts = Array.isArray(payload.discordAccounts) ? payload.discordAccounts as JsonObject[] : [];
+  if (!accounts.length) return "";
+  const flaggedAccounts = accounts.filter((account) => account.flagged === true).length;
+  const lines = accounts.slice(0, EXPLOIT_WATCHER_ACCOUNT_LIMIT).map((account) => {
+    const sources = Array.isArray(account.sources) && account.sources.length
+      ? ` (${account.sources.map(String).join(", ")})`
+      : "";
+    return `• \`${String(account.id ?? "Unknown")}\`${sources}${account.flagged === true ? " — flagged" : ""}`;
+  });
+  const omitted = accounts.length - lines.length;
+  if (omitted > 0) lines.push(`… and ${omitted} more`);
+  return `**Linked Discord accounts:** ${accounts.length}${flaggedAccounts ? `  •  **Flagged:** ${flaggedAccounts}` : ""}\n${lines.join("\n")}`;
+}
+
+// A linked Discord account can be flagged even when the Roblox account itself
+// has no injections of its own, so either signal marks the lookup as flagged.
 export function formatExploitWatcher(payload: JsonObject): string {
   const accounts = Array.isArray(payload.discordAccounts) ? payload.discordAccounts as JsonObject[] : [];
   const games = Array.isArray(payload.injectedGames) ? payload.injectedGames as JsonObject[] : [];
-  const flagged = payload.flagged === true;
+  const flaggedAccounts = accounts.filter((account) => account.flagged === true).length;
   const injections = Number(payload.totalInjections ?? 0);
   const gameCount = Number(payload.totalGamesInjected ?? games.length);
-  const heading = flagged
-    ? `🔴 **Flagged** — ${injections.toLocaleString("en-US")} injection${injections === 1 ? "" : "s"} in ${gameCount.toLocaleString("en-US")} game${gameCount === 1 ? "" : "s"}`
-    : "🟢 **Not flagged** — no injections were recorded for this account";
+  const flagged = payload.flagged === true || flaggedAccounts > 0 || injections > 0;
+  const heading = !flagged
+    ? "🟢 **Not flagged** — no injections or flagged linked accounts were found"
+    : injections > 0
+      ? `🔴 **Flagged** — ${injections.toLocaleString("en-US")} injection${injections === 1 ? "" : "s"} in ${gameCount.toLocaleString("en-US")} game${gameCount === 1 ? "" : "s"}`
+      : flaggedAccounts > 0
+        ? `🔴 **Flagged** — ${flaggedAccounts} linked Discord account${flaggedAccounts === 1 ? "" : "s"} flagged`
+        : "🔴 **Flagged** — this account appears in the injection logs";
   const blocks = [heading];
-  if (accounts.length) {
-    const flaggedAccounts = accounts.filter((account) => account.flagged === true).length;
-    const lines = accounts.slice(0, EXPLOIT_WATCHER_ACCOUNT_LIMIT).map((account) => {
-      const sources = Array.isArray(account.sources) && account.sources.length
-        ? ` (${account.sources.map(String).join(", ")})`
-        : "";
-      return `• \`${String(account.id ?? "Unknown")}\`${sources}${account.flagged === true ? " — flagged" : ""}`;
-    });
-    const omitted = accounts.length - lines.length;
-    if (omitted > 0) lines.push(`… and ${omitted} more`);
-    blocks.push(`**Linked Discord accounts:** ${accounts.length}${flaggedAccounts ? `  •  **Flagged:** ${flaggedAccounts}` : ""}\n${lines.join("\n")}`);
-  }
   if (games.length) {
     const lines = games.slice(0, EXPLOIT_WATCHER_GAME_LIMIT).map((game) => {
       const count = Number(game.totalInjections ?? 0);
@@ -1234,9 +1244,9 @@ export function formatExploitWatcher(payload: JsonObject): string {
   return blocks.join("\n");
 }
 
-async function fetchExploitWatcher(userId: string, signal?: AbortSignal): Promise<string> {
+async function fetchExploitWatcher(userId: string, signal?: AbortSignal): Promise<{ accounts: string; status: string }> {
   if (!exploitWatcherApiKey) {
-    return "Not configured. Add `EXPLOIT_WATCHER_API_KEY` to enable this check.";
+    return { accounts: "", status: "Not configured. Add `EXPLOIT_WATCHER_API_KEY` to enable this check." };
   }
   try {
     const payload = await cachedRoblox(`exploit_watcher:${userId}`, 1800, async () => {
@@ -1252,11 +1262,11 @@ async function fetchExploitWatcher(userId: string, signal?: AbortSignal): Promis
       if (!response.ok) throw new BotError(`Exploit Watcher could not complete the request (HTTP ${response.status}).`);
       return await response.json() as JsonObject;
     }, signal);
-    return formatExploitWatcher(payload);
+    return { accounts: formatExploitWatcherAccounts(payload), status: formatExploitWatcher(payload) };
   } catch (error) {
     if (signal?.aborted) throw error;
     log("Exploit Watcher lookup failed", error);
-    return errorText(error, "Exploit Watcher could not be reached right now.");
+    return { accounts: "", status: errorText(error, "Exploit Watcher could not be reached right now.") };
   }
 }
 
@@ -1533,6 +1543,7 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
     .setDescription([
       `**Roblox User ID** \`${user.id}\``,
       `**Account Created** ${created ? `${discordTimestamp(created, "D")} (${discordTimestamp(created, "R")})` : "Unknown"}`,
+      ...(exploitWatcher.accounts ? [`\n${exploitWatcher.accounts}`] : []),
     ].join("\n"))
     .setColor(embedColor("Background Check"));
   if (avatar) embed.setThumbnail(avatar.url);
@@ -1546,7 +1557,7 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
     { name: "Ranks & Division", value: `${SECTION_DIVIDER}\n${formatGroups(groups)}`.slice(0, 1024), inline: false },
     { name: "Punishment Record", value: `${SECTION_DIVIDER}\n${punishmentRecord}`.slice(0, 1024), inline: false },
     { name: "Roblox Watcher", value: `${SECTION_DIVIDER}\n${robloxWatcher}`.slice(0, 1024), inline: false },
-    { name: "Exploit Watcher", value: `${SECTION_DIVIDER}\n${exploitWatcher}`.slice(0, 1024), inline: false },
+    { name: "Exploit Watcher", value: `${SECTION_DIVIDER}\n${exploitWatcher.status}`.slice(0, 1024), inline: false },
   );
   if (!image) {
     embed.addFields({

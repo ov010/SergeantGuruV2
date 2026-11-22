@@ -33,10 +33,11 @@ Requires Node.js 22.13+ and pnpm.
 
 The bot provides `/background check`, `/badge count`, `/api`, `/groups`,
 `/profile`, `/info`, `/changelog`, `/search`, and `/ping`. `/background check`
-returns the account header with a headshot, account, community and inventory
-figures, Alt Risk, ranks, the punishment record (blacklist, Secret Service and
-[x]Tracker), Roblox Watcher's linked Discord accounts, Exploit Watcher's
-injection history and linked accounts, and the badge chart.
+returns the account header with a headshot and the Exploit Watcher linked
+Discord accounts, account, community and inventory figures, Alt Risk, ranks,
+the punishment record (blacklist, Secret Service and [x]Tracker), Roblox
+Watcher's linked accounts, Exploit Watcher's injection history, and the badge
+chart.
 `/ping` is public and reports Discord gateway latency, round trip and uptime;
 every other command except `/admin` needs granted access. All slash commands
 are registered globally with guild, bot-DM, and private-channel contexts and

@@ -34,6 +34,7 @@ const {
   createAuthorizedUserEmbed,
   createInfoEmbed,
   formatExploitWatcher,
+  formatExploitWatcherAccounts,
   createPingEmbed,
   createGroupsEmbed,
   createProfileLinkEmbed,
@@ -395,10 +396,10 @@ test("/info reports bot statistics and integrations", () => {
   assert.equal(embed.fields.find(({ name }) => name === "Uptime").value, "1h 0s");
 });
 
-test("Exploit Watcher reports injections and linked accounts", () => {
-  const text = formatExploitWatcher({
+test("Exploit Watcher separates linked accounts from the injection status", () => {
+  const payload = {
     robloxId: "9876543210",
-    flagged: true,
+    flagged: false,
     totalInjections: 5,
     totalGamesInjected: 2,
     discordAccounts: [
@@ -409,11 +410,31 @@ test("Exploit Watcher reports injections and linked accounts", () => {
       { name: "Base Wars: The Land!", totalInjections: 3, lastInjection: "2026-07-01T17:00:00.000Z" },
       { name: "Roblox", totalInjections: 2, lastInjection: "2026-06-21T22:10:00.000Z" },
     ],
-  });
-  assert.match(text, /\u{1F534} \*\*Flagged\*\* — 5 injections in 2 games/u);
-  assert.match(text, /`1522651757115609140` \(Bloxlink\) — flagged/);
-  assert.match(text, /Base Wars: The Land! — 3 \(last 2026-07-01\)/);
-  assert.equal(formatExploitWatcher({ flagged: false, discordAccounts: [], injectedGames: [] }), "\u{1F7E2} **Not flagged** — no injections were recorded for this account");
+  };
+  const accounts = formatExploitWatcherAccounts(payload);
+  assert.match(accounts, /Linked Discord accounts:\*\* 2  •  \*\*Flagged:\*\* 1/);
+  assert.match(accounts, /`1522651757115609140` \(Bloxlink\) — flagged/);
+  const status = formatExploitWatcher(payload);
+  assert.match(status, /\u{1F534} \*\*Flagged\*\* — 5 injections in 2 games/u);
+  assert.match(status, /Base Wars: The Land! — 3 \(last 2026-07-01\)/);
+  assert.doesNotMatch(status, /Linked Discord accounts/);
+  assert.equal(formatExploitWatcherAccounts({ discordAccounts: [] }), "");
+});
+
+test("Exploit Watcher flags an account whose linked Discord accounts are flagged", () => {
+  assert.match(
+    formatExploitWatcher({
+      flagged: false,
+      totalInjections: 0,
+      discordAccounts: [{ id: "1522651757115609140", sources: ["Bloxlink"], flagged: true }],
+      injectedGames: [],
+    }),
+    /\u{1F534} \*\*Flagged\*\* — 1 linked Discord account flagged/u,
+  );
+  assert.equal(
+    formatExploitWatcher({ flagged: false, discordAccounts: [], injectedGames: [] }),
+    "\u{1F7E2} **Not flagged** — no injections or flagged linked accounts were found",
+  );
 });
 
 test("the admin panel lists authorized users in its own dropdown", () => {
