@@ -1,5 +1,10 @@
 # Change Log
 
+## 3.6.0 - 2026-11-22
+- `/background check` now requires both `discord:<id>` and `username:<Roblox username>`. Discord IDs are used only for the report and are no longer stored; the old link table is removed.
+- Added a Discord Account section above Roblox Account showing the Discord username, display name, ID, `<@id>` mention and Hammer Time account creation date.
+- Alt Risk now shows three values: the Roblox account score, the Discord user score based on account age, and a combined score.
+
 ## 3.5.0 - 2026-11-22
 - `/background check` now requires a Discord user ID and takes the Roblox username as an optional second option. `/background check discord:<id> username:<Roblox username>` saves the pair, and later `/background check discord:<id>` resolves the saved Roblox account. Existing saved links keep working.
 - The report shows the Discord user ID above the Roblox user ID, and any Roblox Watcher or Exploit Watcher records found for the Discord ID appear at the very top. Alt Risk and the Hammer Time account-created timestamp remain in the report.

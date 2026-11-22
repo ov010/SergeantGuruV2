@@ -37,6 +37,7 @@ const {
   formatExploitWatcher,
   formatLinkedDiscordAccounts,
   formatDiscordWatcherRecord,
+  formatDiscordAccountSection,
   watcherGuildReasons,
   formatWatcherEvidence,
   createPingEmbed,
@@ -48,8 +49,8 @@ const {
   restorePaginationSession,
   isDiscordUserId,
   parseDiscordId,
-  getDiscordLink,
-  linkDiscordAccount,
+  discordAltRisk,
+  combinedAltRisk,
   DAILY_COMMAND_LIMIT,
   consumeDailyCommand,
   resetDailyCommandUsage,
@@ -90,7 +91,7 @@ test("registers only the retained commands", () => {
   assert.equal(backgroundOptions[0].name, "discord");
   assert.equal(backgroundOptions.find(({ name }) => name === "discord").required, true);
   assert.match(backgroundOptions.find(({ name }) => name === "discord").description, /Discord user ID/);
-  assert.equal(backgroundOptions.find(({ name }) => name === "username").required, false);
+  assert.equal(backgroundOptions.find(({ name }) => name === "username").required, true);
   assert.match(backgroundOptions.find(({ name }) => name === "username").description, /Roblox username/);
   const profileOptions = registered.find(({ name }) => name === "profile").options;
   assert.equal(profileOptions[0].name, "username");
@@ -105,22 +106,36 @@ test("Discord watcher records appear only when flagged", () => {
   assert.match(formatDiscordWatcherRecord("Roblox Watcher", { flagged: true, reasons: [] }), /↳ None/);
 });
 
-test("Discord IDs resolve mentions and saved links update in place", () => {
+test("the Discord account section shows identity, ping, and Hammer Time creation", () => {
+  const section = formatDiscordAccountSection("987654321098765432", {
+    username: "guru",
+    displayName: "Guru",
+    createdAt: new Date("2020-01-02T03:04:05.000Z"),
+  });
+  assert.match(section, /## Discord Account/);
+  assert.match(section, /\*\*Username:\*\* guru/);
+  assert.match(section, /\*\*Display Name:\*\* Guru/);
+  assert.match(section, /\*\*User ID:\*\* `987654321098765432`/);
+  assert.match(section, /\*\*ID Ping:\*\* <@987654321098765432>/);
+  assert.match(section, /\*\*Account Created:\*\* <t:\d+:D> \(<t:\d+:R>\)/);
+});
+
+test("Discord IDs resolve raw IDs and mentions", () => {
   const discordId = "987654321098765432";
   assert.equal(parseDiscordId(discordId), discordId);
   assert.equal(parseDiscordId(`<@${discordId}>`), discordId);
   assert.equal(parseDiscordId(`<@!${discordId}>`), discordId);
   assert.equal(parseDiscordId("not-a-discord-id"), undefined);
-  assert.equal(getDiscordLink(discordId), undefined);
-  linkDiscordAccount(discordId, "1234567", "Builderman", "owner");
-  assert.deepEqual(getDiscordLink(discordId), {
-    discordUserId: discordId,
-    robloxUserId: "1234567",
-    robloxUsername: "Builderman",
-  });
-  linkDiscordAccount(discordId, "7654321", "NewName", "owner");
-  assert.equal(getDiscordLink(discordId).robloxUsername, "NewName");
-  assert.equal(getDiscordLink(discordId).robloxUserId, "7654321");
+});
+
+test("Discord and combined alt risk increase with account age", () => {
+  const now = Date.UTC(2026, 10, 22);
+  assert.equal(discordAltRisk(new Date(now - 2 * 86_400_000), now).score, 85);
+  assert.equal(discordAltRisk(new Date(now - 30 * 86_400_000), now).score, 40);
+  assert.equal(discordAltRisk(new Date(now - 400 * 86_400_000), now).score, 12);
+  assert.equal(discordAltRisk(undefined), undefined);
+  assert.equal(combinedAltRisk(80, 5), 81);
+  assert.equal(combinedAltRisk(16, undefined), 16);
 });
 
 test("/profile returns only the Roblox profile link", () => {

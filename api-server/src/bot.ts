@@ -165,13 +165,7 @@ db.exec(`
     authorized_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
   CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-  CREATE TABLE IF NOT EXISTS discord_links (
-    discord_user_id TEXT PRIMARY KEY,
-    roblox_user_id TEXT NOT NULL,
-    roblox_username TEXT NOT NULL,
-    linked_by TEXT NOT NULL,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
+  DROP TABLE IF EXISTS discord_links;
   CREATE TABLE IF NOT EXISTS pagination_sessions (
     token TEXT PRIMARY KEY,
     payload TEXT NOT NULL,
@@ -839,16 +833,6 @@ async function resolveUser(username: string, signal?: AbortSignal): Promise<{ id
   return { id: String(user.id), name: String(user.name) };
 }
 
-// A saved link stores the immutable Roblox ID, so a username change does not
-// break later Discord ID lookups.
-async function resolveUserById(userId: string, signal?: AbortSignal): Promise<{ id: string; name: string }> {
-  const payload = await robloxJson(`${ROBLOX_USERS}/${encodeURIComponent(userId)}`, { signal });
-  const id = String(payload.id ?? "");
-  const name = String(payload.name ?? "");
-  if (!id || !name) throw new BotError("Roblox could not resolve the linked account.");
-  return { id, name };
-}
-
 // Discord snowflakes are 15-22 digits. Shorter numbers are treated as Roblox
 // usernames so existing lookups keep working unchanged.
 export function isDiscordUserId(value: string): boolean {
@@ -861,43 +845,6 @@ export function parseDiscordId(value: string): string | undefined {
   const mention = trimmed.match(/^<@!?(\d{15,22})>$/);
   if (mention) return mention[1];
   return isDiscordUserId(trimmed) ? trimmed : undefined;
-}
-
-export interface DiscordLink {
-  discordUserId: string;
-  robloxUserId: string;
-  robloxUsername: string;
-}
-
-// The link is saved from a normal background check, so a Discord ID from the
-// intake can be reused without asking the applicant to run another command.
-export function getDiscordLink(discordUserId: string): DiscordLink | undefined {
-  const row = db.prepare(
-    "SELECT discord_user_id, roblox_user_id, roblox_username FROM discord_links WHERE discord_user_id = ?",
-  ).get(discordUserId) as { discord_user_id: string; roblox_user_id: string; roblox_username: string } | undefined;
-  if (!row) return undefined;
-  return {
-    discordUserId: row.discord_user_id,
-    robloxUserId: row.roblox_user_id,
-    robloxUsername: row.roblox_username,
-  };
-}
-
-export function linkDiscordAccount(
-  discordUserId: string,
-  robloxUserId: string,
-  robloxUsername: string,
-  linkedBy: string,
-): void {
-  db.prepare(`
-    INSERT INTO discord_links (discord_user_id, roblox_user_id, roblox_username, linked_by, updated_at)
-    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(discord_user_id) DO UPDATE SET
-      roblox_user_id = excluded.roblox_user_id,
-      roblox_username = excluded.roblox_username,
-      linked_by = excluded.linked_by,
-      updated_at = CURRENT_TIMESTAMP
-  `).run(discordUserId, robloxUserId, robloxUsername, linkedBy);
 }
 
 async function cachedRoblox<T>(key: string, ttl: number, fetcher: () => Promise<T>, signal?: AbortSignal): Promise<T> {
@@ -1377,6 +1324,24 @@ export function formatDiscordWatcherRecord(label: string, record: DiscordWatcher
   return `**${label}:** 🔴 Flagged\n${reasons.map((reason) => `↳ ${reason}`).join("\n")}`;
 }
 
+export interface DiscordAccountView {
+  username: string;
+  displayName: string;
+  createdAt: Date;
+}
+
+export function formatDiscordAccountSection(discordId: string | undefined, account: DiscordAccountView | undefined): string {
+  const created = account?.createdAt;
+  return [
+    "## Discord Account",
+    `**Username:** ${account?.username ?? "Unknown"}`,
+    `**Display Name:** ${account?.displayName ?? "Unknown"}`,
+    `**User ID:** \`${discordId ?? "Unknown"}\``,
+    `**ID Ping:** ${discordId ? `<@${discordId}>` : "Unknown"}`,
+    `**Account Created:** ${created ? `${discordTimestamp(created, "D")} (${discordTimestamp(created, "R")})` : "Unknown"}`,
+  ].join("\n");
+}
+
 async function attachWatcherReasons(groups: WatcherAccountGroup[], signal?: AbortSignal): Promise<void> {
   await Promise.all(groups.map(async (group) => {
     await Promise.all(group.accounts.filter((account) => account.flagged).map(async (account) => {
@@ -1502,6 +1467,36 @@ function formatRiskBand(score: number): string {
   return "Minimal";
 }
 
+export interface DiscordAltRisk {
+  score: number;
+  band: string;
+  ageDays: number;
+}
+
+// Discord exposes no Roblox history, so account age is the only reliable
+// signal available to the bot for a Discord-side alt-risk estimate.
+export function discordAltRisk(createdAt: Date | undefined, now = Date.now()): DiscordAltRisk | undefined {
+  if (!createdAt || Number.isNaN(createdAt.getTime())) return undefined;
+  const ageDays = Math.max(0, Math.floor((now - createdAt.getTime()) / 86_400_000));
+  const score = ageDays < 3 ? 85
+    : ageDays < 14 ? 70
+      : ageDays < 30 ? 55
+        : ageDays < 90 ? 40
+          : ageDays < 180 ? 30
+            : ageDays < 365 ? 20
+              : ageDays < 730 ? 12
+                : 5;
+  return { score, band: formatRiskBand(score), ageDays };
+}
+
+// Combine two independent risk estimates without letting a low score hide a
+// high one: 1 - (1 - roblox)(1 - discord).
+export function combinedAltRisk(robloxScore: number, discordScore: number | undefined): number {
+  if (discordScore === undefined) return Math.round(robloxScore);
+  const combined = 100 - ((100 - robloxScore) * (100 - discordScore)) / 100;
+  return Math.round(Math.min(100, Math.max(0, combined)));
+}
+
 const ALT_AI_MAX_DEVIATION = 30;
 
 export function blendAltRisk(ruleRisk: number, aiChance: number | undefined): { score: number; usedAi: boolean } {
@@ -1600,7 +1595,7 @@ async function backgroundCheck(
   discordId?: string,
 ): Promise<{ embeds: EmbedBuilder[]; image?: AttachmentBuilder; mentions: string[]; user: { id: string; name: string } }> {
   const user = resolvedUser ?? await resolveUser(username, signal);
-  const [groups, details, history, friends, blacklistCards, secretCards, xtracker, robloxWatcher, exploitWatcher, discordRobloxWatcher, discordExploitWatcher, avatarSignals, gameSignals, inventorySignals, avatar] = await Promise.all([
+  const [groups, details, history, friends, blacklistCards, secretCards, xtracker, robloxWatcher, exploitWatcher, discordRobloxWatcher, discordExploitWatcher, avatarSignals, gameSignals, inventorySignals, avatar, discordUser] = await Promise.all([
     fetchGroups(user.id, signal), fetchProfileDetails(user.id, signal), fetchUsernameHistory(user.id, signal), fetchFriendCounts(user.id, signal),
     fetchTrelloCards(BLACKLIST_BOARD, user.name, signal), fetchTrelloCards(SECRET_SERVICE_BOARD, user.name, signal), fetchXtracker(user.id, signal),
     fetchRobloxWatcher(user.id, signal),
@@ -1613,6 +1608,10 @@ async function backgroundCheck(
       log("Roblox avatar unavailable", error);
       return undefined;
     }),
+    discordId ? client.users.fetch(discordId).catch((error) => {
+      log("Discord user lookup failed", error);
+      return undefined;
+    }) : Promise.resolve(undefined),
   ]);
   const linkedGroups: WatcherAccountGroup[] = [
     { watcher: "Roblox Watcher", product: "robloxwatcher", accounts: robloxWatcher.accounts },
@@ -1778,18 +1777,27 @@ async function backgroundCheck(
   const badgeChartSection = inventoryPrivate
     ? "Badge inventory is set to private. Cannot draw badge history."
     : badgeChartError ? `Badge chart unavailable: ${badgeChartError}` : "No badge history is available.";
+  const discordCreated = discordUser?.createdAt;
+  const discordRisk = discordAltRisk(discordCreated);
+  const combinedRisk = combinedAltRisk(risk.score, discordRisk?.score);
+  const discordAccountSection = formatDiscordAccountSection(discordId, discordUser);
+  const altRiskSection = [
+    `**Roblox Account:** ${risk.score}% — ${band}`,
+    `**Discord User:** ${discordRisk ? `${discordRisk.score}% — ${discordRisk.band}` : "Unknown"}`,
+    `**Combined:** ${combinedRisk}% — ${formatRiskBand(combinedRisk)}`,
+  ].join("\n");
   // Everything lives in the description so the section titles can use Markdown
   // headers; Discord does not render headers inside embed field values.
   const sections = [
     ...(discordWatcherSection ? [discordWatcherSection] : []),
     [
-      ...(discordId ? [`**Discord User ID:** \`${discordId}\``] : []),
       `**Roblox User ID:** ${user.id}`,
       `**Account Created:** ${created ? `${discordTimestamp(created, "D")} (${discordTimestamp(created, "R")})` : "Unknown"}`,
     ].join("\n"),
     ...(linkedAccounts ? [linkedAccounts] : []),
+    discordAccountSection,
     `## Roblox Account\n${accountSection}`,
-    `## Alt Risk\n${risk.score}% — ${band}${aiNote ? `\n${aiNote.slice(0, 500)}` : ""}`,
+    `## Alt Risk\n${altRiskSection}${aiNote ? `\n**Roblox AI Note:** ${aiNote.slice(0, 500)}` : ""}`,
     `## Ranks & Division\n${formatGroups(groups)}`,
     `## Punishment Record\n${punishmentRecord}\n\n${watcherSections}`,
     ...(!image ? [`## Badge Chart\n${badgeChartSection}`] : []),
@@ -2229,28 +2237,16 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, req
     await interaction.reply({ embeds: [makeEmbed("Invalid Background Query", "Provide a numeric Discord user ID (15-22 digits) in the discord option.", "Warning")] });
     return;
   }
-  const usernameDiscordId = usernameInput ? parseDiscordId(usernameInput) : undefined;
-  if (usernameDiscordId && usernameDiscordId !== discordId) {
-    await interaction.reply({ embeds: [makeEmbed("Invalid Background Query", "The Discord ID in username does not match the required discord option. Pass the same ID in both, or provide the Roblox username.", "Warning")] });
+  if (!usernameInput) {
+    await interaction.reply({ embeds: [makeEmbed("Invalid Background Query", "Provide the Roblox username to check.", "Warning")] });
     return;
   }
   let normalized: string;
-  let link: DiscordLink | undefined;
-  const lookupByDiscord = !usernameInput || Boolean(usernameDiscordId);
-  if (lookupByDiscord) {
-    link = getDiscordLink(discordId);
-    if (!link) {
-      await interaction.reply({ embeds: [makeEmbed("Invalid Background Query", `No Roblox account is saved for Discord user ID \`${discordId}\`. Run \`/background check discord:${discordId} username:<Roblox username>\` once to save the link.`, "Warning")] });
-      return;
-    }
-    normalized = link.robloxUsername;
-  } else {
-    try {
-      normalized = validateRobloxUsername(usernameInput);
-    } catch (error) {
-      await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] });
-      return;
-    }
+  try {
+    normalized = validateRobloxUsername(usernameInput);
+  } catch (error) {
+    await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] });
+    return;
   }
   await interaction.deferReply();
   const controller = new AbortController();
@@ -2267,10 +2263,6 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, req
   try {
     const outcome = await Promise.race([
       (async () => {
-        if (lookupByDiscord && link) {
-          const resolved = await resolveUserById(link.robloxUserId, controller.signal);
-          return { kind: "ready" as const, result: await backgroundCheck(resolved.name, controller.signal, resolved, discordId) };
-        }
         return { kind: "ready" as const, result: await backgroundCheck(normalized, controller.signal, undefined, discordId) };
       })(),
       timedOut,
@@ -2282,11 +2274,6 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, req
         files: [],
       });
       return;
-    }
-    try {
-      linkDiscordAccount(discordId, outcome.result.user.id, outcome.result.user.name, interaction.user.id);
-    } catch (error) {
-      log("Unable to save the Discord link", error);
     }
     await interaction.editReply({
       embeds: outcome.result.embeds,
@@ -2527,8 +2514,8 @@ export const commands = [
         .setRequired(true))
       .addStringOption((option) => option
         .setName("username")
-        .setDescription("Roblox username (omit when this Discord ID already has a saved link)")
-        .setRequired(false))),
+        .setDescription("The Roblox username to check")
+        .setRequired(true))),
   new SlashCommandBuilder()
     .setName("badge")
     .setDescription("Generate a Roblox user's badge chart.")

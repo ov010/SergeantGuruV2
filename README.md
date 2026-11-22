@@ -34,16 +34,18 @@ Requires Node.js 22.13+ and pnpm.
 
 The bot provides `/background check`, `/badge count`, `/api`, `/groups`,
 `/profile`, `/info`, `/changelog`, `/search`, and `/ping`. `/background check`
-requires a Discord user ID and takes an optional Roblox username:
-`/background check discord:<id> username:<Roblox username>` saves the pair,
-and later `/background check discord:<id>` resolves the stored Roblox ID and
-returns the same report. The report starts with any Roblox Watcher or Exploit
-Watcher record for the Discord ID, then shows the Discord and Roblox IDs. It
-returns the account header with a headshot and the linked Discord accounts
-merged from Roblox Watcher and Exploit Watcher, account, community and
-inventory figures, Alt Risk, ranks, the punishment record (blacklist, Secret
-Service and [x]Tracker), Exploit Watcher's injection history, and the badge
-chart. Every section is separated by a full-width divider line and titled as a
+requires both a Discord user ID and a Roblox username:
+`/background check discord:<id> username:<Roblox username>`. The Discord ID is
+used only for this report and is never saved by the bot. The report starts
+with any Roblox Watcher or Exploit Watcher record for the Discord ID, then
+shows a Discord Account section with the username, display name, ID, mention
+and Hammer Time creation date, followed by the Roblox account header with a
+headshot and the linked Discord accounts merged from Roblox Watcher and
+Exploit Watcher, account, community and inventory figures, Alt Risk, ranks,
+the punishment record (blacklist, Secret Service and [x]Tracker), Exploit
+Watcher's injection history, and the badge chart. Alt Risk shows the Roblox
+account score, the Discord account score based on its age, and a combined
+score. Every section is separated by a full-width divider line and titled as a
 Markdown header so it renders larger like the account name; the content sits
 in the embed description, and long results continue into a second embed. The
 account, community and inventory figures share one Roblox Account section. The punishment record groups
