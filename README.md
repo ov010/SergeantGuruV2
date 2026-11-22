@@ -98,5 +98,7 @@ their IDs.
 The API health endpoint is `http://localhost:<PORT>/api/healthz`.
 
 Use `/changelog` alone to see all recent updates, newest first. Release history
-starts at 2.0.0; no version option is needed. Whenever making updates, add a
-newest-first version and date entry with short description bullets to `CHANGELOG.md`.
+starts at 2.0.0 and every release increments the patch number by one (2.0.1,
+2.0.2, and so on) so no version is skipped; no version option is needed.
+Whenever making updates, add a newest-first version and date entry with short
+description bullets to `CHANGELOG.md`.
