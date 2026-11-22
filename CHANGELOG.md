@@ -1,5 +1,8 @@
 # Change Log
 
+## 3.1.9 - 2026-11-22
+- `/background check` now renders each section title as a Markdown header so it appears larger like the account name, with all content in the embed description and a continuation embed when it outgrows one. Exploit Watcher shows `None` when it has nothing to report, and a flagged account without server details shows `None` under its mention.
+
 ## 3.1.8 - 2026-11-22
 - Shortened the `/background check` section dividers so they no longer stretch across the full embed width.
 

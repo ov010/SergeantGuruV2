@@ -1209,10 +1209,10 @@ const WATCHER_REASON_GUILD_LIMIT = 2;
 // names the account and the indented line gives the server behind the flag.
 export function formatWatcherEvidence(accounts: WatcherAccount[]): string {
   return accounts.flatMap((account) => {
-    const reasons = account.reasons ?? [];
-    if (!reasons.length) return [];
+    if (!account.flagged) return [];
     const label = isDiscordUserId(account.id) ? `<@${account.id}>` : `\`${account.id}\``;
-    return [`↳ ${label}`, ...reasons.map((text) => `  ${text}`)];
+    const reasons = account.reasons ?? [];
+    return [`↳ ${label}`, ...(reasons.length ? reasons.map((text) => `  ${text}`) : ["  None"])];
   }).slice(0, WATCHER_EVIDENCE_LIMIT).join("\n");
 }
 
@@ -1480,7 +1480,7 @@ function detailsCreated(details: JsonObject): Date | undefined {
   return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
-async function backgroundCheck(username: string, signal: AbortSignal = new AbortController().signal): Promise<{ embed: EmbedBuilder; image?: AttachmentBuilder; mentions: string[] }> {
+async function backgroundCheck(username: string, signal: AbortSignal = new AbortController().signal): Promise<{ embeds: EmbedBuilder[]; image?: AttachmentBuilder; mentions: string[] }> {
   const user = await resolveUser(username, signal);
   const [groups, details, history, friends, blacklistCards, secretCards, xtracker, robloxWatcher, exploitWatcher, avatarSignals, gameSignals, inventorySignals, avatar] = await Promise.all([
     fetchGroups(user.id, signal), fetchProfileDetails(user.id, signal), fetchUsernameHistory(user.id, signal), fetchFriendCounts(user.id, signal),
@@ -1603,74 +1603,81 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
     inventorySignals.private ? "Private" : value === null || value === undefined ? "N/A" : `${value.toLocaleString("en-US")}${capped ? "+" : ""}`;
   const badgeCountLabel = badgeDataAvailable ? stat(badges.length) : inventoryPrivate ? "Private" : "N/A";
   const recordPart = (label: string, text: string): string =>
-    `**${label}**\n${text.length > 280 ? `${text.slice(0, 279)}…` : text}`;
+    `${label}\n${text.length > 280 ? `${text.slice(0, 279)}…` : text}`;
   const punishmentRecord = [
     recordPart("Blacklist", blacklist),
     recordPart("Secret Service", secret),
-    recordPart("[x]Tracker (external)", xtracker),
+    recordPart("[x]Tracker", xtracker),
   ].join("\n\n");
-  const accountStats = {
-    name: "Roblox Account",
-    value: [
-      `${SECTION_DIVIDER}`,
-      `**Badges** ${badgeCountLabel}`,
-      `**Username Changes** ${stat(history.length)}`,
-      `**Created Games** ${stat(gameSignals.created)}`,
-      `**Favourite Games** ${stat(gameSignals.favorites)}`,
-      "",
-      "**Community**",
-      `**Friends** ${stat(friends.friends)}`,
-      `**Following** ${stat(friends.following)}`,
-      `**Followers** ${stat(friends.followers)}`,
-      "",
-      "**Inventory**",
-      `**Game Passes** ${inventoryStat(inventorySignals.gamepassCount, inventorySignals.gamepassCapped)}`,
-      `**Items** ${inventoryStat(inventorySignals.itemCount, inventorySignals.itemCapped)}`,
-      `**Asset Types** ${inventoryStat(inventorySignals.assetTypeCount, inventorySignals.itemCapped)}`,
-      `[Open Inventory](https://www.roblox.com/users/${user.id}/inventory/)`,
-    ].join("\n"),
-    inline: false,
-  };
-  // Every top-level section starts with a full-width divider, so the account
-  // header blocks are separated the same way the fields are.
-  const descriptionBlocks = [
+  const accountSection = [
+    `Badges ${badgeCountLabel}`,
+    `Username Changes ${stat(history.length)}`,
+    `Created Games ${stat(gameSignals.created)}`,
+    `Favourite Games ${stat(gameSignals.favorites)}`,
+    "",
+    "**Community**",
+    `Friends ${stat(friends.friends)}`,
+    `Following ${stat(friends.following)}`,
+    `Followers ${stat(friends.followers)}`,
+    "",
+    "**Inventory**",
+    `Game Passes ${inventoryStat(inventorySignals.gamepassCount, inventorySignals.gamepassCapped)}`,
+    `Items ${inventoryStat(inventorySignals.itemCount, inventorySignals.itemCapped)}`,
+    `Asset Types ${inventoryStat(inventorySignals.assetTypeCount, inventorySignals.itemCapped)}`,
+    `[Open Inventory](https://www.roblox.com/users/${user.id}/inventory/)`,
+  ].join("\n");
+  // A lookup with nothing to report reads as None instead of a green status.
+  const exploitSection = exploitWatcher.status.startsWith("🟢") && !exploitWatcher.accounts.length
+    ? "None"
+    : [exploitWatcher.status, exploitWatcherEvidence].filter(Boolean).join("\n");
+  const badgeChartSection = inventoryPrivate
+    ? "Badge inventory is set to private. Cannot draw badge history."
+    : badgeChartError ? `Badge chart unavailable: ${badgeChartError}` : "No badge history is available.";
+  // Everything lives in the description so the section titles can use Markdown
+  // headers; Discord does not render headers inside embed field values.
+  const sections = [
     [
-      `**Roblox User ID** \`${user.id}\``,
-      `**Account Created** ${created ? `${discordTimestamp(created, "D")} (${discordTimestamp(created, "R")})` : "Unknown"}`,
+      `Roblox User ID ${user.id}`,
+      `Account Created ${created ? `${discordTimestamp(created, "D")} (${discordTimestamp(created, "R")})` : "Unknown"}`,
     ].join("\n"),
     ...(linkedAccounts ? [linkedAccounts] : []),
+    `## Roblox Account\n${accountSection}`,
+    `## Alt Risk\n${risk.score}% — ${band}${aiNote ? `\n${aiNote.slice(0, 500)}` : ""}`,
+    `## Ranks & Division\n${formatGroups(groups)}`,
+    `## Punishment Record\n${punishmentRecord}`,
+    ...(robloxWatcherField ? [`## Roblox Watcher\n${robloxWatcherField}`] : []),
+    `## Exploit Watcher\n${exploitSection}`,
+    ...(!image ? [`## Badge Chart\n${badgeChartSection}`] : []),
   ];
-  const embed = new EmbedBuilder()
-    .setTitle(user.name)
-    .setURL(`https://www.roblox.com/users/${user.id}/profile`)
-    .setDescription(descriptionBlocks.map((block) => `${SECTION_DIVIDER}\n${block}`).join("\n"))
-    .setColor(embedColor("Background Check"));
-  if (avatar) embed.setThumbnail(avatar.url);
-  embed.addFields(
-    accountStats,
-    {
-      name: "Alt Risk",
-      value: `${SECTION_DIVIDER}\n**${risk.score}% — ${band}**${aiNote ? `\n${aiNote.slice(0, 500)}` : ""}`.slice(0, 1024),
-      inline: false,
-    },
-    { name: "Ranks & Division", value: `${SECTION_DIVIDER}\n${formatGroups(groups)}`.slice(0, 1024), inline: false },
-    { name: "Punishment Record", value: `${SECTION_DIVIDER}\n${punishmentRecord}`.slice(0, 1024), inline: false },
-    ...(robloxWatcherField ? [{ name: "Roblox Watcher", value: `${SECTION_DIVIDER}\n${robloxWatcherField}`.slice(0, 1024), inline: false }] : []),
-    { name: "Exploit Watcher", value: `${SECTION_DIVIDER}\n${exploitWatcherField}`.slice(0, 1024), inline: false },
-  );
-  if (!image) {
-    embed.addFields({
-      name: "Badge Chart",
-      value: `${SECTION_DIVIDER}\n${inventoryPrivate
-        ? "Badge inventory is set to private. Cannot draw badge history."
-        : badgeChartError ? `Badge chart unavailable: ${badgeChartError}` : "No badge history is available."}`.slice(0, 1024),
-      inline: false,
-    });
+  // Keep each embed under Discord's 4,096-character description limit by
+  // starting a continuation embed at the next section boundary.
+  const DESCRIPTION_LIMIT = 3900;
+  const pages: string[] = [];
+  let currentPage = "";
+  for (const section of sections) {
+    const clipped = section.length > DESCRIPTION_LIMIT ? `${section.slice(0, DESCRIPTION_LIMIT - 1)}…` : section;
+    const candidate = currentPage ? `${currentPage}\n${SECTION_DIVIDER}\n${clipped}` : clipped;
+    if (candidate.length > DESCRIPTION_LIMIT && currentPage) {
+      pages.push(currentPage);
+      currentPage = clipped;
+    } else {
+      currentPage = candidate;
+    }
   }
-  embed.setFooter({ text: footer() });
-  if (image) embed.setImage("attachment://badge-history.png");
+  if (currentPage) pages.push(currentPage);
+  const embeds = pages.map((description, index) => {
+    const pageEmbed = new EmbedBuilder()
+      .setTitle(index === 0 ? user.name : `${user.name} (continued)`)
+      .setURL(`https://www.roblox.com/users/${user.id}/profile`)
+      .setDescription(`${SECTION_DIVIDER}\n${description}`)
+      .setColor(embedColor("Background Check"))
+      .setFooter({ text: footer() });
+    if (index === 0 && avatar) pageEmbed.setThumbnail(avatar.url);
+    if (index === 0 && image) pageEmbed.setImage("attachment://badge-history.png");
+    return pageEmbed;
+  });
   return {
-    embed,
+    embeds,
     ...(image ? { image: new AttachmentBuilder(image, { name: "badge-history.png" }) } : {}),
     mentions,
   };
@@ -2107,7 +2114,7 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, req
       return;
     }
     await interaction.editReply({
-      embeds: [outcome.result.embed],
+      embeds: outcome.result.embeds,
       files: outcome.result.image ? [outcome.result.image] : [],
       components: [],
       // The client blocks mentions by default; allow exactly the linked accounts shown.
