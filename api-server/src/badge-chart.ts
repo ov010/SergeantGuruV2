@@ -143,7 +143,7 @@ export function summarizeBadgeHistory(badges: Array<{ addTime?: unknown }>, now 
   };
 }
 
-export function discordTimestamp(date: Date, style: "D" | "R" = "D"): string {
+export function discordTimestamp(date: Date, style: "t" | "T" | "d" | "D" | "f" | "F" | "R" = "D"): string {
   return `<t:${Math.floor(date.getTime() / 1000)}:${style}>`;
 }
 

@@ -1,5 +1,13 @@
 # Change Log
 
+## 3.0.0 - 2026-11-22
+- Fixed the admin panel's authorized-user view: it now has its own embed color instead of failing with "No selectable color target", and it shows the user's display name, username, profile picture, Discord ID, authorization time, and who granted access.
+- `/background check` now lays account, community, and inventory counts out in three compact columns, gives Alt Risk its own section, and keeps the wide ranks, punishment, and Roblox Watcher sections easy to scan.
+- The ranks and division list in `/background check` and `/groups` now links every group name to its Roblox group page.
+- Added a Roblox Watcher lookup to `/background check`: linked Discord accounts and how many are flagged. `/api` and `/info` report the integration too. Set `ROBLOX_WATCHER_API_KEY` to enable it.
+- Added `/ping` for Discord gateway latency, round trip, uptime, and version.
+- Removed `/data` and `/records` completely; blacklist, Secret Service, and [x]Tracker results now live only in `/background check`.
+
 ## 2.13.0 - 2026-11-22
 - `/background check` now has a profile headshot, username and Roblox ID header, a clean account-created line, split sections for stats, ranks, and punishment records, and the badge chart at the bottom.
 - Account stats now include friends, following, followers, game passes, inventory items, asset types, created and favourite games, badges, username changes, and an inventory link.

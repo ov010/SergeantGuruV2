@@ -50,6 +50,7 @@ const ROBLOX_GAMES = "https://games.roblox.com/v2/users";
 const ROBLOX_AVATAR = "https://avatar.roblox.com/v1/users";
 const TRELLO_API = "https://api.trello.com/1";
 const XTRACKER_API = "https://api.xtracker.xyz";
+const ROBLOX_WATCHER_API = "https://api.robloxwatcher.com/api/v1/robloxwatcher";
 const BLACKLIST_BOARD = "gsCa53Bt";
 const SECRET_SERVICE_BOARD = "xgGFFrH3";
 const NONE = "None";
@@ -70,6 +71,7 @@ const robloxApiKey = process.env["ROBLOX_OPEN_CLOUD_API_KEY"]?.trim();
 if (!token) throw new Error("DISCORD_BOT_TOKEN is required.");
 if (!robloxApiKey) throw new Error("ROBLOX_OPEN_CLOUD_API_KEY is required.");
 const xtrackerApiKey = process.env["XTRACKER_API_KEY"]?.trim() ?? "";
+const robloxWatcherApiKey = process.env["ROBLOX_WATCHER_API_KEY"]?.trim() ?? "";
 const altAiBaseUrl = process.env["OLLAMA_BASE_URL"]?.trim() || "http://127.0.0.1:11434";
 const altAiModel = process.env["OLLAMA_MODEL"]?.trim() || "qwen2.5:1.5b";
 
@@ -94,12 +96,12 @@ const EMBED_ROLES: Record<string, [string, string]> = {
   "Background Check": ["embed_color_background_check", "Blurple"],
   "Badge Count": ["embed_color_badge_count", "Yellow"],
   "CBRN Groups": ["embed_color_groups", "Blue"],
-  "Records": ["embed_color_records", "Purple"],
   "Profile": ["embed_color_profile", "Blue"],
   "Could Not Load Profile": ["embed_color_profile_error", "Orange"],
   "Bot Interaction": ["embed_color_interaction_log", "Blurple"],
   "Access Denied": ["embed_color_access_denied", "Red"],
   "Admin Panel": ["embed_color_admin_panel", "Blurple"],
+  "Authorized User": ["embed_color_authorized_user", "Blurple"],
   "Change Embed Colors": ["embed_color_admin_color_menu", "Blurple"],
   "Choose Embed Color": ["embed_color_admin_choose_color", "Blurple"],
   "Rate Limit Exceeded": ["embed_color_rate_limit", "Orange"],
@@ -109,18 +111,17 @@ const EMBED_ROLES: Record<string, [string, string]> = {
   "Background Check Timed Out": ["embed_color_background_timeout", "Orange"],
   "Could Not Look Up User": ["embed_color_lookup_error", "Orange"],
   "Could Not Load Groups": ["embed_color_groups_error", "Orange"],
-  "Could Not Load Records": ["embed_color_records_error", "Orange"],
   "Badge Count Timed Out": ["embed_color_badge_timeout", "Orange"],
   "Could Not Load Badge Count": ["embed_color_badge_error", "Orange"],
   "Server Required": ["embed_color_server_required", "Orange"],
   "Bot Information": ["embed_color_bot_information", "Blurple"],
+  "Ping": ["embed_color_ping", "Teal"],
   "Change Log": ["embed_color_changelog", "Blue"],
   "Change Log Unavailable": ["embed_color_changelog_error", "Orange"],
   "API Status": ["embed_color_api_status", "Blue"],
   "Invalid Search Query": ["embed_color_search_invalid", "Orange"],
   "No Interactions Found": ["embed_color_search_empty", "Orange"],
   "Interaction Search Results": ["embed_color_search_results", "Green"],
-  "Bot Data": ["embed_color_bot_data", "Blurple"],
   "Embed Colors Updated": ["embed_color_admin_color_result", "Green"],
   "Rotating Presence Updated": ["embed_color_presence_result", "Green"],
   "Authorization Updated": ["embed_color_authorization_result", "Green"],
@@ -391,6 +392,61 @@ function validateUsername(username: string): string {
   if (value.includes("__")) throw new Error("Roblox usernames cannot contain consecutive underscores.");
   if (value.startsWith("_") || value.endsWith("_")) throw new Error("Roblox usernames cannot start or end with an underscore.");
   return value;
+}
+
+function authorizationDate(value: string): Date | undefined {
+  // SQLite CURRENT_TIMESTAMP is UTC without a zone marker.
+  const iso = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(value) ? `${value.replace(" ", "T")}Z` : value;
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+export interface AuthorizedUserView {
+  userId: string;
+  username?: string;
+  displayName?: string;
+  avatarUrl?: string;
+  authorizedAt: string;
+  authorizedById: string;
+  authorizedByName?: string;
+  daily: DailyCommandUsage;
+  perCommand: CommandDailyUsage[];
+}
+
+export function createAuthorizedUserEmbed(view: AuthorizedUserView): EmbedBuilder {
+  const authorizedAt = authorizationDate(view.authorizedAt);
+  const authorizedLabel = authorizedAt
+    ? `${discordTimestamp(authorizedAt, "F")}\n${discordTimestamp(authorizedAt, "R")}`
+    : view.authorizedAt;
+  const embed = makeEmbed(
+    "Authorized User",
+    [`**${view.displayName ?? view.username ?? "Unknown user"}**`, view.username ? `@${view.username}` : ""]
+      .filter(Boolean).join("\n"),
+    "Info",
+  );
+  if (view.avatarUrl) embed.setThumbnail(view.avatarUrl);
+  embed.addFields(
+    { name: "Discord ID", value: `\`${view.userId}\``, inline: true },
+    { name: "Authorized", value: authorizedLabel, inline: true },
+    {
+      name: "Authorized By",
+      value: view.authorizedById === view.userId
+        ? "Self-authorized"
+        : `${view.authorizedByName ? `${view.authorizedByName} ` : ""}(\`${view.authorizedById}\`)`,
+      inline: true,
+    },
+    {
+      name: "Commands Today",
+      value: `${view.daily.used}/${view.daily.limit}\nResets ${discordTimestamp(view.daily.resetAt, "R")}`,
+      inline: true,
+    },
+    {
+      name: "Per-command Limits",
+      value: view.perCommand.map((usage) => `${usage.label}: ${usage.used}/${usage.limit}`).join("\n") || NONE,
+      inline: false,
+    },
+  );
+  return embed;
 }
 
 function authorizationTargetLabel(type: "user" | "role", id: string): string {
@@ -903,10 +959,18 @@ async function fetchInventorySignals(userId: string, signal?: AbortSignal): Prom
   }
 }
 
+function robloxGroupUrl(groupId: number): string {
+  return `https://www.roblox.com/groups/${groupId}`;
+}
+
 function formatGroups(groups: JsonObject[]): string {
-  const names = groups.flatMap((data) => GROUP_IDS.has(Number(data.group?.id))
-    ? [`• **${data.group?.name ?? ""}** — ${data.role?.name ?? "Member"}`]
-    : []);
+  const names = groups.flatMap((data) => {
+    const id = Number(data.group?.id);
+    if (!GROUP_IDS.has(id)) return [];
+    const name = String(data.group?.name ?? `Group ${id}`);
+    const role = String(data.role?.name ?? "Member");
+    return [`• [${name}](${robloxGroupUrl(id)}) — ${role}`];
+  });
   return names.join("\n") || NONE;
 }
 
@@ -1027,40 +1091,47 @@ async function fetchXtracker(userId: string, signal?: AbortSignal): Promise<stri
   }
 }
 
-export function createRecordsEmbed(
-  username: string,
-  userId: string,
-  blacklist: string,
-  secret: string,
-  external: string,
-): EmbedBuilder {
-  return new EmbedBuilder()
-    .setTitle(`Records — ${username}`)
-    .setURL(`https://www.roblox.com/users/${userId}/profile`)
-    .setColor(embedColor("Records"))
-    .addFields(
-      { name: "Blacklist Record", value: blacklist.slice(0, 1024), inline: false },
-      { name: "Secret Service Record", value: secret.slice(0, 1024), inline: false },
-      { name: "[x]Tracker Records", value: external.slice(0, 1024), inline: false },
-    )
-    .setFooter({ text: footer() });
-}
+const ROBLOX_WATCHER_ACCOUNT_LIMIT = 8;
 
-async function recordsReport(username: string, signal?: AbortSignal): Promise<EmbedBuilder> {
-  const user = await resolveUser(username, signal);
-  const [blacklistCards, secretCards, external] = await Promise.all([
-    fetchTrelloCards(BLACKLIST_BOARD, user.name, signal),
-    fetchTrelloCards(SECRET_SERVICE_BOARD, user.name, signal),
-    fetchXtracker(user.id, signal),
-  ]);
-  if (signal?.aborted) throw signal.reason;
-  return createRecordsEmbed(
-    user.name,
-    user.id,
-    trelloText(blacklistCards, user.name, "blacklist"),
-    trelloText(secretCards, user.name, "secret"),
-    external,
-  );
+// Roblox Watcher reports the Discord accounts linked to a Roblox account and
+// whether each was seen in a flagged server. Its Roblox-side `flagged` value is
+// always false, so the linked accounts carry the useful signal.
+async function fetchRobloxWatcher(userId: string, signal?: AbortSignal): Promise<string> {
+  if (!robloxWatcherApiKey) {
+    return "Not configured. Add `ROBLOX_WATCHER_API_KEY` to enable this check.";
+  }
+  try {
+    const payload = await cachedRoblox(`roblox_watcher:${userId}`, 1800, async () => {
+      const token = robloxWatcherApiKey.replace(/^Bearer\s+/i, "");
+      const response = await requestJson(`${ROBLOX_WATCHER_API}/roblox/search/${encodeURIComponent(userId)}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        signal,
+      });
+      if (response.status === 401 || response.status === 403) {
+        throw new BotError("The Roblox Watcher API key was rejected.");
+      }
+      if (response.status === 404) return { discordAccounts: [] } as JsonObject;
+      if (!response.ok) throw new BotError(`Roblox Watcher could not complete the request (HTTP ${response.status}).`);
+      return await response.json() as JsonObject;
+    }, signal);
+    const accounts = Array.isArray(payload.discordAccounts) ? payload.discordAccounts as JsonObject[] : [];
+    if (!accounts.length) return "No linked Discord accounts were found in the Roblox Watcher database.";
+    const flagged = accounts.filter((account) => account.flagged === true).length;
+    const lines = accounts.slice(0, ROBLOX_WATCHER_ACCOUNT_LIMIT).map((account) => {
+      const sources = Array.isArray(account.sources) && account.sources.length
+        ? ` (${account.sources.map(String).join(", ")})`
+        : "";
+      return `• \`${String(account.id ?? "Unknown")}\`${account.flagged === true ? " — flagged" : ""}${sources}`;
+    });
+    const omitted = accounts.length - lines.length;
+    if (omitted > 0) lines.push(`… and ${omitted} more`);
+    const heading = `**Linked Discord accounts:** ${accounts.length}${flagged ? `  •  **Flagged:** ${flagged}` : ""}`;
+    return `${heading}\n${lines.join("\n")}`;
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    log("Roblox Watcher lookup failed", error);
+    return errorText(error, "Roblox Watcher could not be reached right now.");
+  }
 }
 
 async function fetchBadges(userId: string, signal?: AbortSignal): Promise<JsonObject[]> {
@@ -1183,9 +1254,10 @@ function detailsCreated(details: JsonObject): Date | undefined {
 
 async function backgroundCheck(username: string, signal: AbortSignal = new AbortController().signal): Promise<{ embed: EmbedBuilder; image?: AttachmentBuilder }> {
   const user = await resolveUser(username, signal);
-  const [groups, details, history, friends, blacklistCards, secretCards, xtracker, avatarSignals, gameSignals, inventorySignals, avatar] = await Promise.all([
+  const [groups, details, history, friends, blacklistCards, secretCards, xtracker, robloxWatcher, avatarSignals, gameSignals, inventorySignals, avatar] = await Promise.all([
     fetchGroups(user.id, signal), fetchProfileDetails(user.id, signal), fetchUsernameHistory(user.id, signal), fetchFriendCounts(user.id, signal),
     fetchTrelloCards(BLACKLIST_BOARD, user.name, signal), fetchTrelloCards(SECRET_SERVICE_BOARD, user.name, signal), fetchXtracker(user.id, signal),
+    fetchRobloxWatcher(user.id, signal),
     fetchAvatarSignals(user.id, signal), fetchGameSignals(user.id, signal), fetchInventorySignals(user.id, signal),
     fetchRobloxAvatar(user.id, signal).catch((error) => {
       if (signal.aborted) throw error;
@@ -1285,35 +1357,68 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
   const band = formatRiskBand(risk.score);
   const stat = (value: number | null | undefined): string =>
     value === null || value === undefined ? "N/A" : value.toLocaleString("en-US");
-  const inventoryPrivateNote = inventorySignals.private;
+  const inventoryStat = (value: number | null | undefined): string =>
+    inventorySignals.private ? "Private" : stat(value);
   const badgeCountLabel = badgeDataAvailable ? stat(badges.length) : inventoryPrivate ? "Private" : "N/A";
-  const stats = [
-    `**Friends** ${stat(friends.friends)}  •  **Following** ${stat(friends.following)}  •  **Followers** ${stat(friends.followers)}`,
-    `**Game Passes** ${inventoryPrivateNote ? "Private" : stat(inventorySignals.gamepassCount)}  •  **Inventory Items** ${inventoryPrivateNote ? "Private" : stat(inventorySignals.itemCount)}  •  **Asset Types** ${inventoryPrivateNote ? "Private" : stat(inventorySignals.assetTypeCount)}`,
-    `**Created Games** ${stat(gameSignals.created)}  •  **Favourite Games** ${stat(gameSignals.favorites)}  •  **Badges** ${badgeCountLabel}  •  **Username Changes** ${stat(history.length)}`,
-    `[Open Inventory](https://www.roblox.com/users/${user.id}/inventory/)`,
-    `**Alt Risk** ${risk.score}% — ${band}${aiNote ? `\n${aiNote}` : ""}`,
-  ].join("\n");
   const recordPart = (label: string, text: string): string =>
-    `**${label}**\n${text.length > 300 ? `${text.slice(0, 299)}…` : text}`;
+    `**${label}**\n${text.length > 280 ? `${text.slice(0, 279)}…` : text}`;
   const punishmentRecord = [
     recordPart("Blacklist", blacklist),
     recordPart("Secret Service", secret),
     recordPart("[x]Tracker (external)", xtracker),
   ].join("\n\n");
+  // Three compact inline columns keep the account figures scannable instead of
+  // cramming them into one dense block; wide sections stay full width.
+  const accountStats = [
+    {
+      name: "Account",
+      value: [
+        `**Badges** ${badgeCountLabel}`,
+        `**Username Changes** ${stat(history.length)}`,
+        `**Created Games** ${stat(gameSignals.created)}`,
+        `**Favourite Games** ${stat(gameSignals.favorites)}`,
+      ].join("\n"),
+      inline: true,
+    },
+    {
+      name: "Community",
+      value: [
+        `**Friends** ${stat(friends.friends)}`,
+        `**Following** ${stat(friends.following)}`,
+        `**Followers** ${stat(friends.followers)}`,
+      ].join("\n"),
+      inline: true,
+    },
+    {
+      name: "Inventory",
+      value: [
+        `**Game Passes** ${inventoryStat(inventorySignals.gamepassCount)}`,
+        `**Items** ${inventoryStat(inventorySignals.itemCount)}`,
+        `**Asset Types** ${inventoryStat(inventorySignals.assetTypeCount)}`,
+        `[Open Inventory](https://www.roblox.com/users/${user.id}/inventory/)`,
+      ].join("\n"),
+      inline: true,
+    },
+  ];
   const embed = new EmbedBuilder()
     .setTitle(user.name)
     .setURL(`https://www.roblox.com/users/${user.id}/profile`)
     .setDescription([
-      `Roblox User ID \`${user.id}\``,
-      `Roblox Account Created ${created ? `${discordTimestamp(created, "D")} (${discordTimestamp(created, "R")})` : "Unknown"}`,
+      `**Roblox User ID** \`${user.id}\``,
+      `**Account Created** ${created ? `${discordTimestamp(created, "D")} (${discordTimestamp(created, "R")})` : "Unknown"}`,
     ].join("\n"))
     .setColor(embedColor("Background Check"));
   if (avatar) embed.setThumbnail(avatar.url);
   embed.addFields(
-    { name: "Account Stats", value: `${SECTION_DIVIDER}\n${stats}`.slice(0, 1024), inline: false },
+    ...accountStats,
+    {
+      name: "Alt Risk",
+      value: `${SECTION_DIVIDER}\n**${risk.score}% — ${band}**${aiNote ? `\n${aiNote.slice(0, 500)}` : ""}`.slice(0, 1024),
+      inline: false,
+    },
     { name: "Ranks & Division", value: `${SECTION_DIVIDER}\n${formatGroups(groups)}`.slice(0, 1024), inline: false },
     { name: "Punishment Record", value: `${SECTION_DIVIDER}\n${punishmentRecord}`.slice(0, 1024), inline: false },
+    { name: "Roblox Watcher", value: `${SECTION_DIVIDER}\n${robloxWatcher}`.slice(0, 1024), inline: false },
   );
   if (!image) {
     embed.addFields({
@@ -1403,12 +1508,10 @@ export const ACCESS_CONTROLLED_COMMANDS: ReadonlySet<string> = new Set([
   "background",
   "badge",
   "groups",
-  "records",
   "profile",
   "api",
   "info",
   "changelog",
-  "data",
   "search",
 ]);
 
@@ -1499,7 +1602,6 @@ export const COMMAND_DAILY_LIMITS: Readonly<Record<string, { limit: number; labe
   background: { limit: 5, label: "/background check" },
   badge: { limit: 5, label: "/badge count" },
   groups: { limit: 5, label: "/groups" },
-  records: { limit: 5, label: "/records" },
 };
 
 export function commandDailyUsage(userId: string, commandName: string, now = new Date()): CommandDailyUsage {
@@ -1684,7 +1786,6 @@ async function logInteractionAttempt(interaction: Interaction): Promise<void> {
     action = `select:${interaction.customId}${interaction.values.length ? `:${interaction.values.join(",")}` : ""}`;
     if (interaction.customId === "admin-panel") access = isOwner(interaction.user.id) ? "allowed" : "denied";
     else if (interaction.customId === "admin-authorized-user") access = isOwner(interaction.user.id) ? "allowed" : "denied";
-    else if (interaction.customId === "data-view") access = isInteractionAuthorized(interaction) ? "allowed" : "denied";
     else if (interaction.customId.startsWith("admin-color-target") || interaction.customId.startsWith("admin-color-value:")) {
       access = isOwner(interaction.user.id) ? "allowed" : "denied";
     }
@@ -1847,20 +1948,6 @@ async function sendGroups(interaction: ChatInputCommandInteraction, username: st
   } catch (error) {
     log("Groups lookup failed", error);
     await interaction.editReply({ embeds: [makeEmbed("Could Not Load Groups", errorText(error, "Something went wrong while loading this user's CBRN groups. Please try again."), "Warning")] });
-  }
-}
-
-async function sendRecords(interaction: ChatInputCommandInteraction, username: string): Promise<void> {
-  if (!isCommandAuthorized(interaction)) return replyDenied(interaction);
-  let normalized: string;
-  try { normalized = validateRobloxUsername(username); }
-  catch (error) { await interaction.reply({ embeds: [makeEmbed("Invalid Roblox Username", errorText(error, "Enter a valid Roblox username."), "Warning")] }); return; }
-  await interaction.deferReply();
-  try {
-    await interaction.editReply({ embeds: [await recordsReport(normalized)] });
-  } catch (error) {
-    log("Records lookup failed", error);
-    await interaction.editReply({ embeds: [makeEmbed("Could Not Load Records", errorText(error, "Something went wrong while loading this user's records. Please try again."), "Warning")] });
   }
 }
 
@@ -2034,13 +2121,6 @@ export const commands = [
       .setDescription("The Roblox username to check")
       .setRequired(true)),
   new SlashCommandBuilder()
-    .setName("records")
-    .setDescription("Look up blacklist, Secret Service, and [x]Tracker records.")
-    .addStringOption((option) => option
-      .setName("username")
-      .setDescription("The Roblox username to check")
-      .setRequired(true)),
-  new SlashCommandBuilder()
     .setName("profile")
     .setDescription("Get a Roblox user's profile link.")
     .addStringOption((option) => option
@@ -2051,7 +2131,6 @@ export const commands = [
   new SlashCommandBuilder()
     .setName("changelog")
     .setDescription("Show recent releases and changes."),
-  new SlashCommandBuilder().setName("data").setDescription("Show detailed stats, access, and settings."),
   new SlashCommandBuilder()
     .setName("search")
     .setDescription("Find every logged interaction by username, user ID, or interaction ID.")
@@ -2059,6 +2138,7 @@ export const commands = [
       .setName("query")
       .setDescription("A Discord or Roblox username, Discord user ID, or interaction ID")
       .setRequired(true)),
+  new SlashCommandBuilder().setName("ping").setDescription("Check the bot's Discord latency and uptime."),
   new SlashCommandBuilder().setName("admin").setDescription("Open the bot owner admin panel."),
 ].map(configureCommand);
 
@@ -2103,7 +2183,6 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
   }
   if (name === "badge" && interaction.options.getSubcommand() === "count") return sendBadgeCount(interaction, interaction.options.getString("username", true));
   if (name === "groups") return sendGroups(interaction, interaction.options.getString("username", true));
-  if (name === "records") return sendRecords(interaction, interaction.options.getString("username", true));
   if (name === "profile") return sendProfileLink(interaction, interaction.options.getString("username", true));
   if (name === "api") return sendApiStatus(interaction);
   if (name === "changelog") {
@@ -2112,6 +2191,7 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
     await interaction.reply({ embeds: pagination.embeds, components: pagination.components });
     return;
   }
+  if (name === "ping") return sendPing(interaction);
   if (name === "admin") return sendAdminPanel(interaction);
   if (name === "info") {
     const stats = db.prepare("SELECT (SELECT COUNT(*) FROM authorized_users) AS users, (SELECT COUNT(*) FROM authorized_roles) AS roles").get() as JsonObject;
@@ -2131,13 +2211,9 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
       robloxOnline,
       robloxCloud: Boolean(robloxApiKey),
       xtracker: Boolean(xtrackerApiKey),
+      robloxWatcher: Boolean(robloxWatcherApiKey),
       dailyUsage: isOwner(interaction.user.id) ? null : dailyCommandUsage(interaction.user.id),
     }));
-    await interaction.reply({ embeds: pagination.embeds, components: pagination.components });
-    return;
-  }
-  if (name === "data") {
-    const pagination = buildPagination(createDataEmbed("overview"), [createDataViewMenu("overview") as PaginationRow]);
     await interaction.reply({ embeds: pagination.embeds, components: pagination.components });
     return;
   }
@@ -2369,6 +2445,12 @@ async function sendApiStatus(interaction: ChatInputCommandInteraction): Promise<
       xtrackerApiKey ? { headers: { authorization: `Bearer ${xtrackerApiKey.replace(/^Bearer\s+/i, "")}` } } : {},
       { configured: Boolean(xtrackerApiKey), onlineStatuses: [404] },
     ),
+    probeEndpoint(
+      "Roblox Watcher",
+      `${ROBLOX_WATCHER_API}/roblox/search/1`,
+      robloxWatcherApiKey ? { headers: { authorization: `Bearer ${robloxWatcherApiKey.replace(/^Bearer\s+/i, "")}` } } : {},
+      { configured: Boolean(robloxWatcherApiKey), onlineStatuses: [404] },
+    ),
   ]);
 
   const pagination = buildPagination(createApiStatusEmbed(checks));
@@ -2388,62 +2470,43 @@ export function createApiStatusEmbed(checks: ApiCheck[]): EmbedBuilder {
   })));
 }
 
+export interface PingSnapshot {
+  gatewayMs: number;
+  roundtripMs: number;
+  uptimeSeconds: number;
+}
+
+export function createPingEmbed(info: PingSnapshot): EmbedBuilder {
+  return makeEmbed(
+    "Ping",
+    [`**Discord gateway** ${info.gatewayMs}ms`, `**Round trip** ${info.roundtripMs}ms`].join("\n"),
+    "Info",
+  ).addFields(
+    { name: "Uptime", value: formatUptime(info.uptimeSeconds), inline: true },
+    { name: "Status", value: "Online", inline: true },
+    { name: "Version", value: BOT_VERSION, inline: true },
+  );
+}
+
+async function sendPing(interaction: ChatInputCommandInteraction): Promise<void> {
+  const started = Date.now();
+  await interaction.deferReply();
+  const roundtripMs = Date.now() - started;
+  await interaction.editReply({
+    embeds: [createPingEmbed({
+      gatewayMs: Math.round(client.ws.ping),
+      roundtripMs,
+      uptimeSeconds: (Date.now() - startTime) / 1000,
+    })],
+  });
+}
+
 function formatDataList(lines: string[], total: number): string {
   if (!lines.length) return NONE;
   // Pagination now carries long lists; keep a sane ceiling so one view cannot explode.
   const shown = lines.slice(0, 250);
   const omitted = Math.max(0, total - shown.length);
   return `${shown.join("\n")}${omitted ? `\n… and ${omitted} more` : ""}`;
-}
-
-export type DataView = "overview" | "access" | "bot" | "colors";
-
-export const DATA_VIEW_LABELS: Record<DataView, string> = {
-  overview: "Overview",
-  access: "Access & Statistics",
-  bot: "Bot & API",
-  colors: "Embed Colors",
-};
-
-const DATA_VIEW_DESCRIPTIONS: Record<DataView, string> = {
-  overview: "High-level bot, server, and usage totals.",
-  access: "Authorized users, roles, and command usage.",
-  bot: "Bot build and API health.",
-  colors: "Current embed and chart color settings.",
-};
-
-export interface DataStatus {
-  robloxApiOnline?: boolean;
-}
-
-export function createDataViewMenu(selected: DataView = "overview"): ActionRowBuilder<StringSelectMenuBuilder> {
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId("data-view")
-    .setPlaceholder(`Viewing ${DATA_VIEW_LABELS[selected]}`)
-    .addOptions((Object.keys(DATA_VIEW_LABELS) as DataView[]).map((view) => ({
-      label: DATA_VIEW_LABELS[view],
-      description: DATA_VIEW_DESCRIPTIONS[view],
-      value: view,
-      ...(view === selected ? { default: true } : {}),
-    })));
-  return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
-}
-
-export async function collectDataStatus(): Promise<DataStatus> {
-  let robloxApiOnline = false;
-  try {
-    robloxApiOnline = (await requestJson(`${ROBLOX_USERS}/users/1`)).ok;
-  } catch (error) {
-    log("Roblox API status check failed while building /data", error);
-  }
-  return { robloxApiOnline };
-}
-
-export function createDataEmbed(view: DataView = "overview", status: DataStatus = {}): EmbedBuilder {
-  if (view === "access") return createDataAccessEmbed();
-  if (view === "bot") return createDataBotEmbed(status);
-  if (view === "colors") return createDataColorEmbed();
-  return createDataOverviewEmbed();
 }
 
 function authorizedUserLines(): string[] {
@@ -2466,112 +2529,6 @@ function authorizedRoleLines(): string[] {
   });
 }
 
-function createDataOverviewEmbed(): EmbedBuilder {
-  const users = authorizedUserLines();
-  const roles = authorizedRoleLines();
-  return makeEmbed(
-    "Bot Data",
-    [
-      "Choose a view from the menu: **Access & Statistics**, **Bot & API**, or **Embed Colors**.",
-      "",
-      ...commands.map((command) => `• **/${command.name}** — ${command.description}`),
-    ].join("\n"),
-    "Info",
-  ).addFields(
-    { name: "Authorized Users", value: String(users.length), inline: true },
-    { name: "Authorized Roles", value: String(roles.length), inline: true },
-    { name: "Servers", value: String(client.guilds.cache.size), inline: true },
-  );
-}
-
-function createDataAccessEmbed(): EmbedBuilder {
-  const users = authorizedUserLines();
-  const roles = authorizedRoleLines();
-  return makeEmbed(
-    "Bot Data",
-    "Access is granted from `/admin`. Everyone listed here can run the access-controlled commands.",
-    "Info",
-  ).addFields(
-    {
-      name: "Access",
-      value: [
-        `Authorized users: ${users.length}`,
-        `Authorized roles: ${roles.length}`,
-        `Access-controlled commands: ${ACCESS_CONTROLLED_COMMANDS.size}`,
-      ].join("\n"),
-      inline: false,
-    },
-    { name: "Authorized Users", value: formatDataList(users, users.length) },
-    { name: "Authorized Roles", value: formatDataList(roles, roles.length) },
-  );
-}
-
-function createDataBotEmbed(status: DataStatus): EmbedBuilder {
-  const guilds = client.guilds.cache;
-  const memberCount = guilds.reduce((sum, guild) => sum + (guild.memberCount ?? 0), 0);
-  const recentCommandUsers = [...lastCommandAt.values()]
-    .filter((timestamp) => timestamp > Date.now() - COMMAND_COOLDOWN_MS).length;
-  return makeEmbed("Bot Data", "Runtime, Discord gateway, and live integration status.", "Info").addFields(
-    {
-      name: "Runtime",
-      value: [
-        `Version: ${BOT_VERSION}`,
-        `Uptime: ${formatUptime((Date.now() - startTime) / 1000)}`,
-        `Memory: ${(process.memoryUsage().rss / 1024 / 1024).toFixed(1)} MB`,
-        `Platform: ${process.platform} ${process.arch}`,
-        `Node.js: ${process.version}`,
-        "discord.js: v14",
-      ].join("\n"),
-      inline: true,
-    },
-    {
-      name: "Discord",
-      value: [
-        `Ping: ${Math.round(client.ws.ping)} ms`,
-        `Bot ID: ${client.user?.id ?? NONE}`,
-        `Servers: ${guilds.size}`,
-        `Total users: ${memberCount.toLocaleString("en-US")}`,
-        `Slash commands: ${commands.length}`,
-      ].join("\n"),
-      inline: true,
-    },
-    {
-      name: "Integrations",
-      value: [
-        `Roblox Public API: ${status.robloxApiOnline ? "Online" : "Unavailable"}`,
-        `Roblox Open Cloud: ${robloxApiKey ? "Configured" : "Not configured"}`,
-        `[x]Tracker: ${xtrackerApiKey ? "Configured" : "Not configured"}`,
-      ].join("\n"),
-      inline: true,
-    },
-    {
-      name: "Activity",
-      value: [
-        `Users in cooldown (last minute): ${recentCommandUsers}`,
-        `Daily command limit: ${DAILY_COMMAND_LIMIT}`,
-      ].join("\n"),
-      inline: true,
-    },
-  );
-}
-
-function createDataColorEmbed(): EmbedBuilder {
-  const colorLines = [
-    `Badge Chart: ${getSetting("chart_color", DEFAULT_CHART_COLOR)}`,
-    ...Object.entries(EMBED_ROLES).map(([role, [key, fallback]]) => `${role}: ${getSetting(key, fallback)}`),
-  ];
-  const colorFields = Array.from({ length: Math.ceil(colorLines.length / 12) }, (_, index) => ({
-    name: index ? `Embed Colors (${index + 1})` : "Embed Colors",
-    value: colorLines.slice(index * 12, (index + 1) * 12).join("\n"),
-    inline: true,
-  }));
-  const activities = getPresenceActivities();
-  return makeEmbed("Bot Data", "Change these from `/admin` → **Change colors**.", "Info").addFields(
-    ...colorFields,
-    { name: "Rotating Presence", value: formatDataList(activities, activities.length), inline: true },
-  );
-}
-
 export interface InfoSnapshot {
   pingMs: number;
   servers: number;
@@ -2585,6 +2542,7 @@ export interface InfoSnapshot {
   robloxOnline: boolean;
   robloxCloud: boolean;
   xtracker: boolean;
+  robloxWatcher: boolean;
   /** Null for the owner, who is exempt from the daily command limit. */
   dailyUsage: DailyCommandUsage | null;
 }
@@ -2614,6 +2572,7 @@ export function createInfoEmbed(info: InfoSnapshot): EmbedBuilder {
     { name: "Roblox Public API", value: info.robloxOnline ? "OK" : "N/A", inline: true },
     { name: "Roblox Open Cloud Key", value: info.robloxCloud ? "OK" : "N/A", inline: true },
     { name: "[x]Tracker API", value: info.xtracker ? "OK" : "N/A", inline: true },
+    { name: "Roblox Watcher API", value: info.robloxWatcher ? "OK" : "N/A", inline: true },
   );
 }
 
@@ -2647,26 +2606,22 @@ client.on("interactionCreate", async (interaction) => {
         "SELECT discord_user_id, authorized_by, authorized_at FROM authorized_users WHERE discord_user_id = ?",
       ).get(userId) as { discord_user_id: string; authorized_by: string; authorized_at: string } | undefined;
       if (!row) throw new BotError("That user is no longer authorized.");
-      const user = await client.users.fetch(userId).catch(() => undefined);
-      const usage = dailyCommandUsage(userId);
-      const perCommand = Object.entries(COMMAND_DAILY_LIMITS).map(([name, config]) => {
-        const commandUsage = commandDailyUsage(userId, name);
-        return `${config.label}: ${commandUsage.used}/${commandUsage.limit}`;
-      });
-      const authorizedAt = new Date(`${row.authorized_at.replace(" ", "T")}Z`);
-      const authorizedLabel = Number.isNaN(authorizedAt.getTime())
-        ? row.authorized_at
-        : `${discordTimestamp(authorizedAt, "D")} (${discordTimestamp(authorizedAt, "R")})`;
+      const [user, authorizedBy] = await Promise.all([
+        client.users.fetch(userId).catch(() => undefined),
+        client.users.fetch(row.authorized_by).catch(() => undefined),
+      ]);
       await interaction.reply({
-        embeds: [makeEmbed("Authorized User", `<@${userId}> is authorized to use the bot.`, "Info").addFields(
-          { name: "User", value: user ? `${user.tag} (${userId})` : userId, inline: true },
-          { name: "Discord ID", value: userId, inline: true },
-          { name: "Authorized By", value: row.authorized_by, inline: true },
-          { name: "Authorized", value: authorizedLabel, inline: false },
-          { name: "Commands Today", value: `${usage.used}/${usage.limit}`, inline: true },
-          { name: "Per-command Limits", value: perCommand.join("\n"), inline: false },
-        )],
-        allowedMentions: { users: [userId] },
+        embeds: [createAuthorizedUserEmbed({
+          userId,
+          username: user?.username,
+          displayName: user?.displayName,
+          avatarUrl: user?.displayAvatarURL({ extension: "png", size: 256 }),
+          authorizedAt: row.authorized_at,
+          authorizedById: row.authorized_by,
+          authorizedByName: authorizedBy?.username,
+          daily: dailyCommandUsage(userId),
+          perCommand: Object.keys(COMMAND_DAILY_LIMITS).map((name) => commandDailyUsage(userId, name)),
+        })],
       });
     } else if (interaction.isStringSelectMenu() && interaction.customId === "admin-panel") {
       if (!isOwner(interaction.user.id)) {
@@ -2739,20 +2694,6 @@ client.on("interactionCreate", async (interaction) => {
           "Success",
         )],
         components: [],
-      });
-    } else if (interaction.isStringSelectMenu() && interaction.customId === "data-view") {
-      if (!isInteractionAuthorized(interaction)) {
-        await interaction.reply({ embeds: [deniedEmbed("Ask the bot owner to grant access.")] });
-        return;
-      }
-      const view = interaction.values[0];
-      if (!view || !Object.hasOwn(DATA_VIEW_LABELS, view)) throw new BotError("Choose a valid data view.");
-      const dataView = view as DataView;
-      const status = dataView === "bot" ? await collectDataStatus() : {};
-      const pagination = buildPagination(createDataEmbed(dataView, status), [createDataViewMenu(dataView) as PaginationRow]);
-      await interaction.update({
-        embeds: pagination.embeds,
-        components: pagination.components,
       });
     } else if (interaction.isModalSubmit() && interaction.customId.startsWith("admin-panel:")) {
       if (!isOwner(interaction.user.id)) {

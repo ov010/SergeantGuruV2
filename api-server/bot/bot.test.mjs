@@ -31,12 +31,11 @@ const {
   createApiStatusEmbed,
   createColorMenu,
   createColorTargetMenu,
-  createDataEmbed,
-  createDataViewMenu,
+  createAuthorizedUserEmbed,
   createInfoEmbed,
+  createPingEmbed,
   createGroupsEmbed,
   createProfileLinkEmbed,
-  createRecordsEmbed,
   createInteractionLogEmbed,
   createSearchResultEmbeds,
   buildPaginationFromPages,
@@ -52,7 +51,6 @@ const {
   commandDailyUsage,
   consumeCommandDailyUsage,
   resetCommandDailyUsage,
-  DATA_VIEW_LABELS,
   PAGE_LINE_LIMIT,
   buildPagination,
   interactionLogLocations,
@@ -68,8 +66,11 @@ test("registers only the retained commands", () => {
   const registered = commands.map((command) => command.toJSON());
   assert.deepEqual(
     registered.map(({ name }) => name),
-    ["background", "badge", "api", "groups", "records", "profile", "info", "changelog", "data", "search", "admin"],
+    ["background", "badge", "api", "groups", "profile", "info", "changelog", "search", "ping", "admin"],
   );
+  assert.equal(registered.some(({ name }) => name === "data"), false, "/data is removed");
+  assert.equal(registered.some(({ name }) => name === "records"), false, "/records is removed");
+  assert.equal(registered.find(({ name }) => name === "ping").options?.length ?? 0, 0);
   assert.equal(registered.find(({ name }) => name === "admin").options?.length ?? 0, 0);
   assert.equal(registered.find(({ name }) => name === "badge").options[0].name, "count");
   assert.equal(registered.find(({ name }) => name === "search").options[0].name, "query");
@@ -79,7 +80,6 @@ test("registers only the retained commands", () => {
   assert.equal(backgroundOptions.find(({ name }) => name === "username").required, true);
   assert.match(backgroundOptions.find(({ name }) => name === "username").description, /Roblox username/);
   assert.equal(backgroundOptions.find(({ name }) => name === "discord"), undefined);
-  assert.match(registered.find(({ name }) => name === "records").options[0].description, /Roblox username/);
   const profileOptions = registered.find(({ name }) => name === "profile").options;
   assert.equal(profileOptions[0].name, "username");
   assert.equal(profileOptions[0].required, true);
@@ -170,7 +170,10 @@ test("/info lists full command names including subcommands", () => {
   const lines = commandDescriptions();
   assert.ok(lines.some((line) => line.startsWith("• **/background check**")));
   assert.ok(lines.some((line) => line.startsWith("• **/badge count**")));
-  assert.ok(lines.some((line) => line.startsWith("• **/records**")));
+  assert.ok(lines.some((line) => line.startsWith("• **/groups**")));
+  assert.ok(lines.some((line) => line.startsWith("• **/ping**")));
+  assert.equal(lines.some((line) => line.includes("/data")), false);
+  assert.equal(lines.some((line) => line.includes("/records")), false);
 });
 
 test("every slash command, subcommand, and option has a short description", () => {
@@ -190,10 +193,11 @@ test("every slash command, subcommand, and option has a short description", () =
   }
 });
 
-test("admin and data menus describe every option", () => {
-  for (const menu of [createAdminPanelMenu(), createDataViewMenu("access")]) {
+test("admin menus describe every option", () => {
+  for (const menu of [createAdminPanelMenu(), createAuthorizedUsersMenu()]) {
     const options = menu.toJSON().components[0].options;
-    assert.ok(options.every((option) => option.description?.trim()), "every menu option needs a description");
+    assert.ok(options.every((option) => option.label?.trim()), "every menu option needs a label");
+    assert.ok(options.every((option) => !option.description || option.description.length <= 100));
   }
 });
 
@@ -224,50 +228,64 @@ test("/admin is limited to the bot owner", async () => {
   assert.equal(opened[0].components[1].toJSON().components[0].custom_id, "admin-authorized-user");
 });
 
-test("/data opens separate views for access, bot/API, and colors", () => {
-  const menu = createDataViewMenu("access").toJSON().components[0];
-  assert.equal(menu.custom_id, "data-view");
-  assert.deepEqual(menu.options.map(({ value }) => value), ["overview", "access", "bot", "colors"]);
-  assert.deepEqual(menu.options.map(({ label }) => label), Object.values(DATA_VIEW_LABELS));
-  assert.ok(menu.options.find(({ value }) => value === "access").default);
+test("the authorized-user view shows identity, headshot, grant time, and grantor", () => {
+  assert.ok(COLOR_TARGETS.includes("Authorized User"), "the view needs its own selectable embed color");
+  const resetAt = new Date("2026-11-23T00:00:00Z");
+  const embed = createAuthorizedUserEmbed({
+    userId: "1154853004676178092",
+    username: "helper",
+    displayName: "Helper",
+    avatarUrl: "https://cdn.discordapp.com/avatars/1154853004676178092/abc.png",
+    authorizedAt: "2026-11-22 14:13:00",
+    authorizedById: "1186370477606838375",
+    authorizedByName: "guru_guru1x",
+    daily: { allowed: true, used: 2, limit: DAILY_COMMAND_LIMIT, remaining: 8, resetAt },
+    perCommand: [
+      { command: "background", label: "/background check", allowed: true, used: 1, limit: 5, remaining: 4, resetAt },
+      { command: "badge", label: "/badge count", allowed: true, used: 1, limit: 5, remaining: 4, resetAt },
+    ],
+  }).toJSON();
+  const field = (name) => embed.fields.find((item) => item.name === name).value;
 
-  const overview = createDataEmbed("overview").toJSON();
-  assert.equal(overview.title, "Bot Data");
-  assert.ok(overview.description.includes("**/data**"));
-  assert.ok(overview.fields.some(({ name }) => name === "Authorized Users"));
-  assert.ok(overview.fields.some(({ name }) => name === "Authorized Roles"));
+  assert.equal(embed.title, "Authorized User");
+  assert.match(embed.description, /\*\*Helper\*\*/);
+  assert.match(embed.description, /@helper/);
+  assert.equal(embed.thumbnail.url, "https://cdn.discordapp.com/avatars/1154853004676178092/abc.png");
+  assert.match(field("Discord ID"), /1154853004676178092/);
+  assert.match(field("Authorized"), /<t:\d+:F>/);
+  assert.match(field("Authorized"), /<t:\d+:R>/);
+  assert.match(field("Authorized By"), /guru_guru1x/);
+  assert.match(field("Authorized By"), /1186370477606838375/);
+  assert.match(field("Commands Today"), /^2\/10/);
+  assert.match(field("Per-command Limits"), /\/badge count: 1\/5/);
+  assert.match(embed.footer.text, /^SergeantGuruV2 \| \d{2}:\d{2}Z \| ID: /);
 
-  const access = createDataEmbed("access").toJSON();
-  const accessField = access.fields.find(({ name }) => name === "Access");
-  assert.match(accessField.value, /Authorized users:/);
-  assert.match(accessField.value, /Authorized roles:/);
-  assert.ok(access.fields.some(({ name }) => name === "Authorized Users"));
-  assert.ok(access.fields.some(({ name }) => name === "Authorized Roles"));
+  const ownerRow = createAuthorizedUserEmbed({
+    userId: "1186370477606838375",
+    authorizedAt: "2026-11-22 14:13:00",
+    authorizedById: "1186370477606838375",
+    daily: { allowed: true, used: 0, limit: DAILY_COMMAND_LIMIT, remaining: DAILY_COMMAND_LIMIT, resetAt },
+    perCommand: [],
+  }).toJSON();
+  assert.equal(ownerRow.fields.find(({ name }) => name === "Authorized By").value, "Self-authorized");
+  assert.equal(ownerRow.thumbnail, undefined, "an unresolvable user still renders without a headshot");
+});
 
-  const bot = createDataEmbed("bot", { robloxApiOnline: true }).toJSON();
-  const integrations = bot.fields.find(({ name }) => name === "Integrations").value;
-  assert.match(integrations, /Roblox Public API: Online/);
-  const runtime = bot.fields.find(({ name }) => name === "Runtime").value;
-  assert.ok(runtime.includes(`Version: ${BOT_VERSION}`), "the Bot & API view must report the running version");
-  assert.match(runtime, /Uptime:/);
-  assert.match(bot.fields.find(({ name }) => name === "Discord").value, /Ping:/);
-
-  const colors = createDataEmbed("colors").toJSON();
-  assert.ok(colors.fields.some(({ name }) => name === "Embed Colors"));
-  assert.ok(colors.fields.some(({ name }) => name === "Rotating Presence"));
-
-  for (const view of ["overview", "access", "bot", "colors"]) {
-    const embed = createDataEmbed(view, { robloxApiOnline: false }).toJSON();
-    assert.ok(embed.fields.length <= 25, `${view} exceeds the embed field limit`);
-    assert.ok(embed.fields.every(({ value }) => value.length <= 1024), `${view} has an oversized field`);
-  }
+test("/ping reports gateway latency, round trip, uptime, and version", () => {
+  const embed = createPingEmbed({ gatewayMs: 42, roundtripMs: 7, uptimeSeconds: 3661 }).toJSON();
+  assert.equal(embed.title, "Ping");
+  assert.match(embed.description, /42ms/);
+  assert.match(embed.description, /7ms/);
+  assert.equal(embed.fields.find(({ name }) => name === "Uptime").value, "1h 1m 1s");
+  assert.equal(embed.fields.find(({ name }) => name === "Version").value, BOT_VERSION);
+  assert.match(embed.footer.text, /^SergeantGuruV2 \| \d{2}:\d{2}Z \| ID: /);
 });
 
 test("every command except the owner-only admin panel requires granted access", () => {
   const registered = commands.map((command) => command.toJSON().name);
   assert.deepEqual(
     registered.filter((name) => !ACCESS_CONTROLLED_COMMANDS.has(name)),
-    ["admin"],
+    ["ping", "admin"],
   );
   for (const name of ["background", "badge", "groups", "changelog", "info"]) {
     assert.ok(ACCESS_CONTROLLED_COMMANDS.has(name), `${name} must require access`);
@@ -320,7 +338,7 @@ test("lookup commands have separate five-per-day budgets", () => {
 
     assert.equal(commandDailyUsage(userId, "badge", day).used, 0, "each command has its own budget");
     assert.equal(consumeCommandDailyUsage(userId, "groups", day).allowed, true);
-    assert.deepEqual(Object.keys(COMMAND_DAILY_LIMITS).sort(), ["background", "badge", "groups", "records"]);
+    assert.deepEqual(Object.keys(COMMAND_DAILY_LIMITS).sort(), ["background", "badge", "groups"]);
 
     const nextDay = consumeCommandDailyUsage(userId, "background", new Date("2099-03-02T00:00:01Z"));
     assert.equal(nextDay.allowed, true, "the per-command quota resets at UTC midnight");
@@ -359,6 +377,7 @@ test("/info reports bot statistics and integrations", () => {
     robloxOnline: true,
     robloxCloud: true,
     xtracker: false,
+    robloxWatcher: true,
     dailyUsage: {
       allowed: true,
       used: 7,
@@ -518,6 +537,7 @@ test("paginates embeds without splitting related blocks", () => {
     robloxOnline: true,
     robloxCloud: true,
     xtracker: false,
+    robloxWatcher: true,
     dailyUsage: null,
   });
   const original = info().toJSON();
@@ -681,30 +701,17 @@ test("groups embeds omit the invalid empty description", () => {
   assert.equal(embed.description, undefined);
   assert.equal(embed.fields[0].name, "Ranks & Division");
   assert.match(embed.fields[0].value, /CBRN Joint Warfare Operations.*JWO Auxiliary/);
-});
-
-test("/records shows only blacklist, Secret Service, and [x]Tracker records", () => {
-  const embed = createRecordsEmbed(
-    "Guru_Guru1X",
-    "123456789",
-    "• [Blacklist case](https://trello.com/c/blacklist)",
+  assert.match(
+    embed.fields[0].value,
+    /\[CBRN Joint Warfare Operations\]\(https:\/\/www\.roblox\.com\/groups\/32619026\)/,
+    "group names must be clickable links",
+  );
+  assert.equal(
+    createGroupsEmbed("Guru_Guru1X", [{ group: { id: 999, name: "Unrelated" }, role: { name: "Member" } }])
+      .toJSON().fields[0].value,
     "None",
-    "**Entry #1**\n**Reason:** Exploiting",
-  ).toJSON();
-  assert.equal(embed.title, "Records — Guru_Guru1X");
-  assert.equal(embed.url, "https://www.roblox.com/users/123456789/profile");
-  assert.deepEqual(embed.fields.map(({ name }) => name), [
-    "Blacklist Record",
-    "Secret Service Record",
-    "[x]Tracker Records",
-  ]);
-  assert.match(embed.fields[0].value, /Blacklist case/);
-  assert.equal(embed.fields[1].value, "None");
-  assert.match(embed.fields[2].value, /Exploiting/);
-  assert.match(embed.footer.text, /^SergeantGuruV2 \| \d{2}:\d{2}Z \| ID: /);
-
-  const long = createRecordsEmbed("User", "1", "x".repeat(2000), "None", "None").toJSON();
-  assert.equal(long.fields[0].value.length, 1024, "long record lists are capped at the embed field limit");
+    "only the tracked CBRN groups are listed",
+  );
 });
 
 test("renders badge chart text at a higher resolution", async () => {

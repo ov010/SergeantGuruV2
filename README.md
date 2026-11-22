@@ -9,9 +9,10 @@ Requires Node.js 22.13+ and pnpm.
    on such a drive, the packages are installed and only the shims failed; an
    ext4 folder avoids the message entirely.
 2. Open the `.env` file in the project root and fill in `DISCORD_BOT_TOKEN` and
-   `ROBLOX_OPEN_CLOUD_API_KEY`. `PORT` defaults to `3000`. The XTracker key is
-   optional. Trello boards are read publicly, so no Trello credentials are
-   needed. Keep the `.env` file private.
+   `ROBLOX_OPEN_CLOUD_API_KEY`. `PORT` defaults to `3000`. The XTracker and
+   Roblox Watcher keys are optional; without `ROBLOX_WATCHER_API_KEY` the
+   background check says the check is not configured. Trello boards are read
+   publicly, so no Trello credentials are needed. Keep the `.env` file private.
 3. Start it with `bash "Start SergeantGuruV2.sh"`. The launcher checks Ollama,
    builds, and runs the API server, which supervises the Discord bot. You can
    also run `pnpm start`, or press **F5** in **Run and Debug**.
@@ -30,26 +31,31 @@ Requires Node.js 22.13+ and pnpm.
    `OLLAMA_BASE_URL` and `OLLAMA_MODEL` can be set in `.env` if needed.
 
 The bot provides `/background check`, `/badge count`, `/api`, `/groups`,
-`/records`, and `/info`. `/records` is a focused lookup that returns only the
-blacklist and Secret Service Trello records plus [x]Tracker marks. All slash
-commands are registered globally with guild, bot-DM, and private-channel
-contexts and support guild install and user install, so they can also be used
-in Discord DMs. DM use requires **Guild Install** and **User Install** to be
-enabled under the application's **Installation** settings in the Discord
-Developer Portal. `/api` runs live reachability checks for Discord, Roblox,
-and XTracker. Each authorized user can run 50 access-controlled commands per
-UTC day; the owner is exempt and `/info` shows what is left. The owner can use
-`/admin` to open the access and color settings panel.
+`/profile`, `/info`, `/changelog`, `/search`, and `/ping`. `/background check`
+returns the account header with a headshot, account, community and inventory
+figures, Alt Risk, ranks, the punishment record (blacklist, Secret Service and
+[x]Tracker), Roblox Watcher's linked Discord accounts, and the badge chart.
+`/ping` is public and reports Discord gateway latency, round trip and uptime;
+every other command except `/admin` needs granted access. All slash commands
+are registered globally with guild, bot-DM, and private-channel contexts and
+support guild install and user install, so they can also be used in Discord
+DMs. DM use requires **Guild Install** and **User Install** to be enabled under
+the application's **Installation** settings in the Discord Developer Portal.
+`/api` runs live reachability checks for Discord, Roblox, XTracker, and Roblox
+Watcher. Each authorized user can run 10 access-controlled commands per UTC
+day; the owner is exempt and `/info` shows what is left. The owner can use
+`/admin` to open the access and color settings panel; its second dropdown shows
+each authorized user's profile picture, Discord ID, who granted access, and when.
 Authorization, daily usage, and settings remain in
 `api-server/bot/data/authorizations.sqlite3`.
 
 Any embed with more than fifteen lines of information is split across pages with
-Previous and Next buttons; `/info`, `/data`, `/api`, `/changelog`, and `/search`
+Previous and Next buttons; `/info`, `/api`, `/changelog`, and `/search`
 paginate. Pages target fifteen lines but keep the description and each field whole,
 so a page can show more than fifteen lines when a related block needs it.
 Interaction logs are exempt: every log is sent as one complete embed. The
-`/background check`, `/badge count`, `/groups`, and `/records` reports are also
-sent as single embeds without pagination.
+`/background check`, `/badge count`, and `/groups` reports are also sent as
+single embeds without pagination.
 `/search` scans the full interaction-log history (up to 100,000 messages) and
 returns every matching entry, not just the latest few; if the cap is reached,
 the results say so.
