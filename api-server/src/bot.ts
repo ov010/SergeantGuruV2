@@ -1603,33 +1603,42 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
     inventorySignals.private ? "Private" : value === null || value === undefined ? "N/A" : `${value.toLocaleString("en-US")}${capped ? "+" : ""}`;
   const badgeCountLabel = badgeDataAvailable ? stat(badges.length) : inventoryPrivate ? "Private" : "N/A";
   const recordPart = (label: string, text: string): string =>
-    `${label}\n${text.length > 280 ? `${text.slice(0, 279)}…` : text}`;
+    `**${label}:**\n${text.length > 280 ? `${text.slice(0, 279)}…` : text}`;
   const punishmentRecord = [
-    recordPart("Blacklist", blacklist),
-    recordPart("Secret Service", secret),
-    recordPart("[x]Tracker", xtracker),
+    recordPart("Blacklist Records", blacklist),
+    recordPart("Secret Service Records", secret),
+    recordPart("[x]Tracker Records", xtracker),
   ].join("\n\n");
   const accountSection = [
-    `Badges ${badgeCountLabel}`,
-    `Username Changes ${stat(history.length)}`,
-    `Created Games ${stat(gameSignals.created)}`,
-    `Favourite Games ${stat(gameSignals.favorites)}`,
+    `Badges: ${badgeCountLabel}`,
+    `Username Changes: ${stat(history.length)}`,
+    `Created Games: ${stat(gameSignals.created)}`,
+    `Favourite Games: ${stat(gameSignals.favorites)}`,
     "",
     "**Community**",
-    `Friends ${stat(friends.friends)}`,
-    `Following ${stat(friends.following)}`,
-    `Followers ${stat(friends.followers)}`,
+    `Friends: ${stat(friends.friends)}`,
+    `Following: ${stat(friends.following)}`,
+    `Followers: ${stat(friends.followers)}`,
     "",
     "**Inventory**",
-    `Game Passes ${inventoryStat(inventorySignals.gamepassCount, inventorySignals.gamepassCapped)}`,
-    `Items ${inventoryStat(inventorySignals.itemCount, inventorySignals.itemCapped)}`,
-    `Asset Types ${inventoryStat(inventorySignals.assetTypeCount, inventorySignals.itemCapped)}`,
+    `Game Passes: ${inventoryStat(inventorySignals.gamepassCount, inventorySignals.gamepassCapped)}`,
+    `Items: ${inventoryStat(inventorySignals.itemCount, inventorySignals.itemCapped)}`,
+    `Asset Types: ${inventoryStat(inventorySignals.assetTypeCount, inventorySignals.itemCapped)}`,
     `[Open Inventory](https://www.roblox.com/users/${user.id}/inventory/)`,
   ].join("\n");
   // A lookup with nothing to report reads as None instead of a green status.
   const exploitSection = exploitWatcher.status.startsWith("🟢") && !exploitWatcher.accounts.length
     ? "None"
     : [exploitWatcher.status, exploitWatcherEvidence].filter(Boolean).join("\n");
+  const robloxSection = robloxWatcher.status.startsWith("No linked") && !robloxWatcher.accounts.length
+    ? "None"
+    : robloxWatcherField || "None";
+  // The watcher labels stay small and sit directly under the punishment
+  // records, without dividers between them.
+  const watcherSections = [
+    `**Roblox Watcher:**\n${robloxSection}`,
+    `**Exploit Watcher:**\n${exploitSection}`,
+  ].join("\n\n");
   const badgeChartSection = inventoryPrivate
     ? "Badge inventory is set to private. Cannot draw badge history."
     : badgeChartError ? `Badge chart unavailable: ${badgeChartError}` : "No badge history is available.";
@@ -1644,9 +1653,7 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
     `## Roblox Account\n${accountSection}`,
     `## Alt Risk\n${risk.score}% — ${band}${aiNote ? `\n${aiNote.slice(0, 500)}` : ""}`,
     `## Ranks & Division\n${formatGroups(groups)}`,
-    `## Punishment Record\n${punishmentRecord}`,
-    ...(robloxWatcherField ? [`## Roblox Watcher\n${robloxWatcherField}`] : []),
-    `## Exploit Watcher\n${exploitSection}`,
+    `## Punishment Record\n${punishmentRecord}\n\n${watcherSections}`,
     ...(!image ? [`## Badge Chart\n${badgeChartSection}`] : []),
   ];
   // Keep each embed under Discord's 4,096-character description limit by

@@ -1,5 +1,8 @@
 # Change Log
 
+## 3.2.0 - 2026-11-22
+- `/background check` now shows `None` for Roblox Watcher when it finds nothing, keeps the Roblox Watcher and Exploit Watcher labels small under the punishment records without dividers, renames the punishment entries to Blacklist Records, Secret Service Records and [x]Tracker Records with bold labels, and adds colons to the account, community and inventory figures.
+
 ## 3.1.9 - 2026-11-22
 - `/background check` now renders each section title as a Markdown header so it appears larger like the account name, with all content in the embed description and a continuation embed when it outgrows one. Exploit Watcher shows `None` when it has nothing to report, and a flagged account without server details shows `None` under its mention.
 

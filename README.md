@@ -40,7 +40,10 @@ Service and [x]Tracker), Exploit Watcher's injection history, and the badge
 chart. Every section is separated by a full-width divider line and titled as a
 Markdown header so it renders larger like the account name; the content sits
 in the embed description, and long results continue into a second embed. The
-account, community and inventory figures share one Roblox Account section.
+account, community and inventory figures share one Roblox Account section. The punishment record groups
+Blacklist Records, Secret Service Records and [x]Tracker Records, and the small
+Roblox Watcher and Exploit Watcher labels show `None` when they have nothing
+to report.
 Linked accounts are rendered as mentions so they ping the linked Discord
 users. Each watcher section at the bottom lists the flagged servers behind the
 accounts it reported, why each server is flagged, and the activity seen
