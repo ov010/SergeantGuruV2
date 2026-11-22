@@ -1334,10 +1334,10 @@ export function formatDiscordAccountSection(discordId: string | undefined, accou
   const created = account?.createdAt;
   return [
     "## Discord Account",
+    ...(discordId ? [`<@${discordId}>`] : []),
     `**Username:** ${account?.username ?? "Unknown"}`,
     `**Display Name:** ${account?.displayName ?? "Unknown"}`,
     `**User ID:** \`${discordId ?? "Unknown"}\``,
-    `**ID Ping:** ${discordId ? `<@${discordId}>` : "Unknown"}`,
     `**Account Created:** ${created ? `${discordTimestamp(created, "D")} (${discordTimestamp(created, "R")})` : "Unknown"}`,
   ].join("\n");
 }
@@ -1738,6 +1738,9 @@ async function backgroundCheck(
     recordPart("[x]Tracker Records", xtracker),
   ].join("\n\n");
   const accountSection = [
+    `**Roblox User ID:** ${user.id}`,
+    `**Account Created:** ${created ? `${discordTimestamp(created, "D")} (${discordTimestamp(created, "R")})` : "Unknown"}`,
+    "",
     `**Badges:** ${badgeCountLabel}`,
     `**Username Changes:** ${stat(history.length)}`,
     `**Created Games:** ${stat(gameSignals.created)}`,
@@ -1790,10 +1793,6 @@ async function backgroundCheck(
   // headers; Discord does not render headers inside embed field values.
   const sections = [
     ...(discordWatcherSection ? [discordWatcherSection] : []),
-    [
-      `**Roblox User ID:** ${user.id}`,
-      `**Account Created:** ${created ? `${discordTimestamp(created, "D")} (${discordTimestamp(created, "R")})` : "Unknown"}`,
-    ].join("\n"),
     ...(linkedAccounts ? [linkedAccounts] : []),
     discordAccountSection,
     `## Roblox Account\n${accountSection}`,
@@ -1825,6 +1824,12 @@ async function backgroundCheck(
       .setDescription(`${SECTION_DIVIDER}\n${description}${index === pages.length - 1 ? "\n\n-# New public databases may be added in future updates." : ""}`)
       .setColor(embedColor("Background Check"))
       .setFooter({ text: footer() });
+    if (index === 0 && discordUser) {
+      pageEmbed.setAuthor({
+        name: `Discord: ${discordUser.username}`,
+        iconURL: discordUser.displayAvatarURL({ extension: "png", size: 128 }),
+      });
+    }
     if (index === 0 && avatar) pageEmbed.setThumbnail(avatar.url);
     if (index === 0 && image) pageEmbed.setImage("attachment://badge-history.png");
     return pageEmbed;

@@ -107,17 +107,16 @@ test("Discord watcher records appear only when flagged", () => {
   assert.match(formatDiscordWatcherRecord("Roblox Watcher", { flagged: true, reasons: [] }), /↳ None/);
 });
 
-test("the Discord account section shows identity, ping, and Hammer Time creation", () => {
+test("the Discord account section shows identity, mention, and Hammer Time creation", () => {
   const section = formatDiscordAccountSection("987654321098765432", {
     username: "guru",
     displayName: "Guru",
     createdAt: new Date("2020-01-02T03:04:05.000Z"),
   });
-  assert.match(section, /## Discord Account/);
-  assert.match(section, /\*\*Username:\*\* guru/);
+  assert.match(section, /## Discord Account\n<@987654321098765432>\n\*\*Username:\*\* guru/);
+  assert.doesNotMatch(section, /ID Ping/);
   assert.match(section, /\*\*Display Name:\*\* Guru/);
   assert.match(section, /\*\*User ID:\*\* `987654321098765432`/);
-  assert.match(section, /\*\*ID Ping:\*\* <@987654321098765432>/);
   assert.match(section, /\*\*Account Created:\*\* <t:\d+:D> \(<t:\d+:R>\)/);
 });
 

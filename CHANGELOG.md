@@ -1,5 +1,9 @@
 # Change Log
 
+## 3.9.0 - 2026-11-22
+- Moved the Roblox user ID and account creation date from the top of the report into the Roblox Account section.
+- The Discord Account section now shows the `<@id>` mention above the username instead of a separate ID Ping line, and the report includes the Discord profile headshot as the embed author icon alongside the Roblox headshot thumbnail.
+
 ## 3.8.0 - 2026-11-22
 - Reverted the 3.7.0 side-by-side account table to the previous layout: the Discord Account section is at the top and the Roblox Account section follows below it.
 - `/background check` now lists `username` before `discord`, so the command reads `/background check username:<Roblox username> discord:<id>`.
