@@ -1,5 +1,8 @@
 # Change Log
 
+## 2.0.56 - 2026-11-22
+- Removed the unused grading mistakes sheet left behind when the `/grade` feature was removed, along with its `.gitignore` exception.
+
 ## 2.0.55 - 2026-11-22
 - Renumbered the change log into one continuous release history: 2.0.0, 2.0.1, 2.0.2, and so on, so no release number is skipped.
 
