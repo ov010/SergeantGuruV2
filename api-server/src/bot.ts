@@ -448,6 +448,30 @@ export function createAdminPanelMenu(): ActionRowBuilder<StringSelectMenuBuilder
   return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
 }
 
+export function createAuthorizedUsersMenu(): ActionRowBuilder<StringSelectMenuBuilder> {
+  const rows = db.prepare(
+    "SELECT discord_user_id, authorized_by, authorized_at FROM authorized_users ORDER BY authorized_at, discord_user_id",
+  ).all() as Array<{ discord_user_id: string; authorized_by: string; authorized_at: string }>;
+  const shown = rows.slice(0, 25);
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId("admin-authorized-user")
+    .setPlaceholder(rows.length > shown.length
+      ? `View an authorized user (${shown.length} of ${rows.length})`
+      : "View an authorized user")
+    .setDisabled(shown.length === 0);
+  if (shown.length) {
+    menu.addOptions(shown.map((row) => {
+      const user = client.users.cache.get(row.discord_user_id);
+      return {
+        label: (user?.username ?? `User ${row.discord_user_id}`).slice(0, 100),
+        description: `${row.discord_user_id} • authorized ${row.authorized_at}`.slice(0, 100),
+        value: row.discord_user_id,
+      };
+    }));
+  }
+  return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
+}
+
 export const COLOR_TARGETS = ["Badge Chart", ...Object.keys(EMBED_ROLES)];
 // Discord allows 25 select options. Reserve two slots for the previous/next
 // navigation on middle pages, so every page stays within the limit.
@@ -1368,7 +1392,7 @@ export async function sendAdminPanel(interaction: ChatInputCommandInteraction): 
   if (!isOwner(interaction.user.id)) return replyDenied(interaction);
   await interaction.reply({
     embeds: [createAdminPanelEmbed()],
-    components: [createAdminPanelMenu()],
+    components: [createAdminPanelMenu(), createAuthorizedUsersMenu()],
   });
 }
 
@@ -1397,8 +1421,8 @@ export const ACCESS_CONTROLLED_COMMANDS: ReadonlySet<string> = new Set([
   "search",
 ]);
 
-// Authorized users get 50 access-controlled commands per UTC day; the owner is exempt.
-export const DAILY_COMMAND_LIMIT = 50;
+// Authorized users get 10 access-controlled commands per UTC day; the owner is exempt.
+export const DAILY_COMMAND_LIMIT = 10;
 
 export interface DailyCommandUsage {
   allowed: boolean;
@@ -1548,11 +1572,11 @@ function createCommandDailyLimitEmbed(usage: CommandDailyUsage): EmbedBuilder {
   );
 }
 
-function createCooldownEmbed(remainingMs: number): EmbedBuilder {
-  const seconds = Math.max(1, Math.ceil(remainingMs / 1000));
+export function createCooldownEmbed(remainingMs: number): EmbedBuilder {
+  const readyAt = new Date(Date.now() + Math.max(0, remainingMs));
   return makeEmbed(
     "Rate Limit Exceeded",
-    `You can run another command in **${seconds}s**. Each user can run one command per minute.`,
+    `You can run another command ${discordTimestamp(readyAt, "R")}. Each user can run one command per minute.`,
     "Warning",
   );
 }
@@ -2657,6 +2681,38 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.update({
         embeds: [session.pages[page]!],
         components: [paginationRow(token!, page, session.pages.length) as PaginationRow, ...session.extraRows],
+      });
+    } else if (interaction.isStringSelectMenu() && interaction.customId === "admin-authorized-user") {
+      if (!isOwner(interaction.user.id)) {
+        await interaction.reply({ embeds: [deniedEmbed()] });
+        return;
+      }
+      const userId = interaction.values[0];
+      if (!userId || !isDiscordUserId(userId)) throw new BotError("Choose a valid authorized user.");
+      const row = db.prepare(
+        "SELECT discord_user_id, authorized_by, authorized_at FROM authorized_users WHERE discord_user_id = ?",
+      ).get(userId) as { discord_user_id: string; authorized_by: string; authorized_at: string } | undefined;
+      if (!row) throw new BotError("That user is no longer authorized.");
+      const user = await client.users.fetch(userId).catch(() => undefined);
+      const usage = dailyCommandUsage(userId);
+      const perCommand = Object.entries(COMMAND_DAILY_LIMITS).map(([name, config]) => {
+        const commandUsage = commandDailyUsage(userId, name);
+        return `${config.label}: ${commandUsage.used}/${commandUsage.limit}`;
+      });
+      const authorizedAt = new Date(`${row.authorized_at.replace(" ", "T")}Z`);
+      const authorizedLabel = Number.isNaN(authorizedAt.getTime())
+        ? row.authorized_at
+        : `${discordTimestamp(authorizedAt, "D")} (${discordTimestamp(authorizedAt, "R")})`;
+      await interaction.reply({
+        embeds: [makeEmbed("Authorized User", `<@${userId}> is authorized to use the bot.`, "Info").addFields(
+          { name: "User", value: user ? `${user.tag} (${userId})` : userId, inline: true },
+          { name: "Discord ID", value: userId, inline: true },
+          { name: "Authorized By", value: row.authorized_by, inline: true },
+          { name: "Authorized", value: authorizedLabel, inline: false },
+          { name: "Commands Today", value: `${usage.used}/${usage.limit}`, inline: true },
+          { name: "Per-command Limits", value: perCommand.join("\n"), inline: false },
+        )],
+        allowedMentions: { users: [userId] },
       });
     } else if (interaction.isStringSelectMenu() && interaction.customId === "admin-panel") {
       if (!isOwner(interaction.user.id)) {

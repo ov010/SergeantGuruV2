@@ -25,6 +25,8 @@ const {
   COLOR_TARGET_PAGE_SIZE,
   createAdminModal,
   createAdminPanelMenu,
+  createAuthorizedUsersMenu,
+  createCooldownEmbed,
   sendAdminPanel,
   createApiStatusEmbed,
   createColorMenu,
@@ -218,7 +220,8 @@ test("/admin is limited to the bot owner", async () => {
   assert.match(embed.description, /Only the bot owner/);
   assert.match(embed.fields.find(({ name }) => name.startsWith("Authorized users")).value, /1186370477606838375/);
   assert.ok(embed.fields.some(({ name }) => name.startsWith("Authorized roles")));
-  assert.ok(opened[0].components.length > 0, "the owner receives the admin menu");
+  assert.equal(opened[0].components.length, 2, "the owner receives the action and authorized-user menus");
+  assert.equal(opened[0].components[1].toJSON().components[0].custom_id, "admin-authorized-user");
 });
 
 test("/data opens separate views for access, bot/API, and colors", () => {
@@ -271,7 +274,7 @@ test("every command except the owner-only admin panel requires granted access", 
   }
 });
 
-test("authorized users get exactly 50 commands per UTC day", () => {
+test("authorized users get exactly 10 commands per UTC day", () => {
   const userId = "999999999999999999";
   const firstDay = new Date("2099-01-01T12:00:00Z");
   resetDailyCommandUsage(userId);
@@ -284,7 +287,7 @@ test("authorized users get exactly 50 commands per UTC day", () => {
     }
 
     const blocked = consumeDailyCommand(userId, firstDay);
-    assert.equal(blocked.allowed, false, "command 51 must be blocked");
+    assert.equal(blocked.allowed, false, "command 11 must be blocked");
     assert.equal(blocked.used, DAILY_COMMAND_LIMIT);
     assert.equal(blocked.remaining, 0);
     assert.equal(blocked.resetAt.toISOString(), "2099-01-02T00:00:00.000Z");
@@ -364,10 +367,20 @@ test("/info reports bot statistics and integrations", () => {
       resetAt: new Date("2026-11-14T00:00:00Z"),
     },
   }).toJSON();
-  assert.match(embed.fields.find(({ name }) => name === "Daily Commands").value, /^7\/50 used/);
+  assert.match(embed.fields.find(({ name }) => name === "Daily Commands").value, /^7\/10 used/);
   assert.equal(embed.fields.find(({ name }) => name === "Version").value, BOT_VERSION);
   assert.equal(embed.fields.find(({ name }) => name === "Ping").value, "42ms");
   assert.equal(embed.fields.find(({ name }) => name === "Uptime").value, "1h 0s");
+});
+
+test("the admin panel lists authorized users in its own dropdown", () => {
+  const menu = createAuthorizedUsersMenu().toJSON().components[0];
+  assert.equal(menu.custom_id, "admin-authorized-user");
+  assert.ok(menu.options.some(({ value }) => value === "1186370477606838375"));
+});
+
+test("the cooldown uses a live Discord countdown", () => {
+  assert.match(createCooldownEmbed(30_000).toJSON().description, /<t:\d+:R>/);
 });
 
 test("admin modal and color menus provide selectable access and appearance settings", () => {

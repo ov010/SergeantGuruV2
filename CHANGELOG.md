@@ -1,5 +1,10 @@
 # Change Log
 
+## 2.12.0 - 2026-11-22
+- The admin panel has a second dropdown listing every authorized user; selecting one shows their grant and usage and pings them as `<@id>`.
+- Authorized users are capped at 10 access-controlled commands per UTC day (down from 50); the owner remains exempt. The per-command 5/day limits still apply.
+- The one-minute cooldown now uses a live Discord `<t:...:R>` countdown instead of a fixed second count.
+
 ## 2.11.1 - 2026-11-22
 - `/admin` now lists the exact authorized user and role IDs, and an authorization confirmation names the resolved user or role so a grant can be verified immediately.
 - Access-denied and rate/daily-limit replies are now ephemeral, and the denial shows the invoker's Discord ID to compare with the grant. The bot logs the authorization database path at startup.
