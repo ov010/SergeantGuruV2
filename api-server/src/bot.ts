@@ -395,6 +395,17 @@ function validateUsername(username: string): string {
   return value;
 }
 
+function authorizationTargetLabel(type: "user" | "role", id: string): string {
+  if (type === "user") {
+    const user = client.users.cache.get(id);
+    return user ? `${user.tag} (${id})` : `Discord user ${id}`;
+  }
+  const role = [...client.guilds.cache.values()]
+    .map((guild) => guild.roles.cache.get(id))
+    .find((candidate) => Boolean(candidate));
+  return role ? `${role.name} (${id})` : `Discord role ${id}`;
+}
+
 function addAuthorization(table: "authorized_users" | "authorized_roles", id: string): boolean {
   const column = table === "authorized_users" ? "discord_user_id" : "discord_role_id";
   const result = db.prepare(`INSERT OR IGNORE INTO ${table} (${column}, authorized_by) VALUES (?, ?)`).run(id, OWNER_ID);
@@ -406,13 +417,18 @@ function removeAuthorization(table: "authorized_users" | "authorized_roles", id:
   return db.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).run(id).changes > 0;
 }
 
+function adminPanelList(lines: string[]): string {
+  const value = formatDataList(lines, lines.length);
+  return value.length <= 1024 ? value : `${value.slice(0, 1023)}…`;
+}
+
 function createAdminPanelEmbed(): EmbedBuilder {
-  const users = db.prepare("SELECT discord_user_id FROM authorized_users ORDER BY discord_user_id").all() as Array<{ discord_user_id: string }>;
-  const roles = db.prepare("SELECT discord_role_id FROM authorized_roles ORDER BY discord_role_id").all() as Array<{ discord_role_id: string }>;
+  const users = authorizedUserLines();
+  const roles = authorizedRoleLines();
   const embed = makeEmbed("Admin Panel", "Only the bot owner can open this panel.", "Info");
   embed.addFields(
-    { name: "Authorized users", value: String(users.length), inline: true },
-    { name: "Authorized roles", value: String(roles.length), inline: true },
+    { name: `Authorized users (${users.length})`, value: adminPanelList(users), inline: false },
+    { name: `Authorized roles (${roles.length})`, value: adminPanelList(roles), inline: false },
   );
   return embed;
 }
@@ -1689,7 +1705,9 @@ async function logInteractionAttempt(interaction: Interaction): Promise<void> {
 }
 
 async function replyDenied(interaction: ChatInputCommandInteraction): Promise<void> {
-  await interaction.reply({ embeds: [deniedEmbed("Ask the bot owner to grant access.")] });
+  const embed = deniedEmbed("Ask the bot owner to grant access.");
+  embed.addFields({ name: "Your Discord ID", value: interaction.user.id, inline: true });
+  await interaction.reply({ embeds: [embed], ephemeral: true });
 }
 
 interface BackgroundCheckRequest {
@@ -2059,7 +2077,7 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
     const waitMs = commandCooldownRemaining(interaction.user.id);
     if (waitMs > 0) {
       commandGateOutcomes.set(interaction, "limited");
-      await interaction.reply({ embeds: [createCooldownEmbed(waitMs)] });
+      await interaction.reply({ embeds: [createCooldownEmbed(waitMs)], ephemeral: true });
       return;
     }
     const perCommand = COMMAND_DAILY_LIMITS[name];
@@ -2067,14 +2085,14 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
       const commandUsage = commandDailyUsage(interaction.user.id, name);
       if (!commandUsage.allowed) {
         commandGateOutcomes.set(interaction, "limited");
-        await interaction.reply({ embeds: [createCommandDailyLimitEmbed(commandUsage)] });
+        await interaction.reply({ embeds: [createCommandDailyLimitEmbed(commandUsage)], ephemeral: true });
         return;
       }
     }
     const usage = consumeDailyCommand(interaction.user.id);
     if (!usage.allowed) {
       commandGateOutcomes.set(interaction, "limited");
-      await interaction.reply({ embeds: [createDailyLimitEmbed(usage)] });
+      await interaction.reply({ embeds: [createDailyLimitEmbed(usage)], ephemeral: true });
       return;
     }
     if (perCommand) consumeCommandDailyUsage(interaction.user.id, name);
@@ -2771,10 +2789,11 @@ client.on("interactionCreate", async (interaction) => {
       const result = operation === "authorize"
         ? changed ? "is now authorized." : "was already authorized."
         : changed ? "has been deauthorized." : "was not authorized.";
+      const target = authorizationTargetLabel(type as "user" | "role", id);
       await interaction.reply({
         embeds: [makeEmbed(
           "Authorization Updated",
-          `Discord ${type} ${id} ${result} Run \`/admin\` to refresh the panel.`,
+          `${target} ${result} Check \`/admin\` to confirm the grant.`,
           "Success",
         )],
       });
@@ -2797,6 +2816,7 @@ client.on("interactionCreate", async (interaction) => {
 client.once("clientReady", async () => {
   if (!client.user) return;
   log(`Connected to Discord as ${client.user.tag} (SergeantGuruV2 v${BOT_VERSION})`);
+  log(`Authorization database: ${AUTH_DB_PATH}`);
   startRotatingPresence();
   try {
     await new REST({ version: "10" }).setToken(token!).put(Routes.applicationCommands(client.user.id), { body: commands.map((command) => command.toJSON()) });

@@ -1,5 +1,9 @@
 # Change Log
 
+## 2.11.1 - 2026-11-22
+- `/admin` now lists the exact authorized user and role IDs, and an authorization confirmation names the resolved user or role so a grant can be verified immediately.
+- Access-denied and rate/daily-limit replies are now ephemeral, and the denial shows the invoker's Discord ID to compare with the grant. The bot logs the authorization database path at startup.
+
 ## 2.11.0 - 2026-11-22
 - Users can run one access-controlled command per minute; the old 10-per-minute bucket is gone. The owner is exempt.
 - `/background check`, `/groups`, `/records`, and `/badge count` each have their own 5-per-UTC-day budget. The existing 50-per-day overall cap still applies, and the owner is exempt from both.

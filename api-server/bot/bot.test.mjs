@@ -203,6 +203,8 @@ test("/admin is limited to the bot owner", async () => {
   });
   assert.equal(denied.length, 1);
   assert.equal(denied[0].embeds[0].toJSON().title, "Access Denied");
+  assert.equal(denied[0].embeds[0].toJSON().fields.find(({ name }) => name === "Your Discord ID").value, "999999999999999999");
+  assert.equal(denied[0].ephemeral, true, "access denials are private");
   assert.equal(denied[0].components, undefined, "non-owners must not receive the admin menu");
 
   const opened = [];
@@ -214,6 +216,8 @@ test("/admin is limited to the bot owner", async () => {
   const embed = opened[0].embeds[0].toJSON();
   assert.equal(embed.title, "Admin Panel");
   assert.match(embed.description, /Only the bot owner/);
+  assert.match(embed.fields.find(({ name }) => name.startsWith("Authorized users")).value, /1186370477606838375/);
+  assert.ok(embed.fields.some(({ name }) => name.startsWith("Authorized roles")));
   assert.ok(opened[0].components.length > 0, "the owner receives the admin menu");
 });
 
