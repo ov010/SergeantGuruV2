@@ -1317,7 +1317,8 @@ async function fetchWatcherGuildReasons(product: WatcherProduct, discordId: stri
 }
 
 // A Discord ID can be flagged even when the Roblox account it is linked to is
-// not, so these records sit above the Roblox header when they exist.
+// not, so these records keep their own section beside the linked accounts near
+// the bottom of the report.
 export function formatDiscordWatcherRecord(label: string, record: DiscordWatcherRecord): string {
   if (!record.flagged) return "";
   const reasons = record.reasons.length ? record.reasons : ["None"];
@@ -1792,13 +1793,13 @@ async function backgroundCheck(
   // Everything lives in the description so the section titles can use Markdown
   // headers; Discord does not render headers inside embed field values.
   const sections = [
-    ...(discordWatcherSection ? [discordWatcherSection] : []),
-    ...(linkedAccounts ? [linkedAccounts] : []),
     `## Roblox Account\n${accountSection}`,
     discordAccountSection,
     `## Alt Risk\n${altRiskSection}${aiNote ? `\n**Roblox AI Note:** ${aiNote.slice(0, 500)}` : ""}`,
     `## Ranks & Division\n${formatGroups(groups)}`,
     `## Punishment Record\n${punishmentRecord}\n\n${watcherSections}`,
+    ...(discordWatcherSection ? [discordWatcherSection] : []),
+    ...(linkedAccounts ? [linkedAccounts] : []),
     ...(!image ? [`## Badge Chart\n${badgeChartSection}`] : []),
   ];
   // Keep each embed under Discord's 4,096-character description limit by

@@ -37,17 +37,15 @@ The bot provides `/background check`, `/badge count`, `/api`, `/groups`,
 requires both a Discord user ID and a Roblox username:
 `/background check username:<Roblox username> discord:<id>`. The Discord ID is
 used only for this report and is never saved by the bot. The report starts
-with any Roblox Watcher or Exploit Watcher record for the Discord ID, then
-shows the linked Discord accounts merged from Roblox Watcher and Exploit
-Watcher, then the Roblox Account section with its user ID, creation date,
-account, community and inventory figures, followed by a Discord Account
-section with the mention above the username, display name, ID and Hammer Time
-creation date. The Roblox headshot is the embed thumbnail; the report no longer
-shows a Discord headshot or a `Discord: <username>` line at the top. Alt Risk, ranks,
+with the Roblox Account section with its user ID, creation date, account,
+community and inventory figures, followed by a Discord Account section with
+the mention above the username, display name, ID and Hammer Time creation
+date. The Roblox headshot is the embed thumbnail; the report no longer shows a
+Discord headshot or a `Discord: <username>` line at the top. Alt Risk, ranks,
 the punishment record (blacklist, Secret Service and [x]Tracker), Exploit
-Watcher's injection history, and the badge chart. Alt Risk shows the Roblox
-account score, the Discord account score based on its age, and a combined
-score. Every section is separated by a full-width divider line and titled as a
+Watcher's injection history, the Discord Watcher Record and linked Discord
+accounts, and the badge chart follow below. Alt Risk shows the Roblox account
+score, the Discord account score based on its age, and a combined score. Every section is separated by a full-width divider line and titled as a
 Markdown header so it renders larger like the account name; the content sits
 in the embed description, and long results continue into a second embed. Every
 embed in a multi-embed report keeps the same section order and formatting. The
@@ -56,8 +54,10 @@ Blacklist Records, Secret Service Records and [x]Tracker Records, and the small
 Roblox Watcher and Exploit Watcher labels show `None` when they have nothing
 to report.
 Linked accounts are rendered as mentions so they ping the linked Discord
-users. Each watcher section at the bottom lists the flagged servers behind the
-accounts it reported, why each server is flagged, and the activity seen
+users; the Discord Watcher Record and linked-account list keep their own
+sections near the bottom instead of opening the report. Each watcher section
+at the bottom lists the flagged servers behind the accounts it reported, why
+each server is flagged, and the activity seen
 there, with relative timestamps for when the account was last seen; the
 Exploit Watcher records stay at the bottom of the embed. Inventory counts page
 up to 6,000 items and 2,000 game passes, with a `+` when a count is still

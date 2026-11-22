@@ -1,5 +1,8 @@
 # Change Log
 
+## 2.0.57 - 2026-11-22
+- Moved the Discord Watcher Record and linked Discord accounts out of the top of `/background check`; they keep their own sections below Punishment Record, next to the watcher evidence and before the badge chart.
+
 ## 2.0.56 - 2026-11-22
 - Removed the unused grading mistakes sheet left behind when the `/grade` feature was removed, along with its `.gitignore` exception.
 
