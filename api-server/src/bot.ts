@@ -1794,8 +1794,8 @@ async function backgroundCheck(
   const sections = [
     ...(discordWatcherSection ? [discordWatcherSection] : []),
     ...(linkedAccounts ? [linkedAccounts] : []),
-    discordAccountSection,
     `## Roblox Account\n${accountSection}`,
+    discordAccountSection,
     `## Alt Risk\n${altRiskSection}${aiNote ? `\n**Roblox AI Note:** ${aiNote.slice(0, 500)}` : ""}`,
     `## Ranks & Division\n${formatGroups(groups)}`,
     `## Punishment Record\n${punishmentRecord}\n\n${watcherSections}`,
@@ -1824,12 +1824,6 @@ async function backgroundCheck(
       .setDescription(`${SECTION_DIVIDER}\n${description}${index === pages.length - 1 ? "\n\n-# New public databases may be added in future updates." : ""}`)
       .setColor(embedColor("Background Check"))
       .setFooter({ text: footer() });
-    if (index === 0 && discordUser) {
-      pageEmbed.setAuthor({
-        name: `Discord: ${discordUser.username}`,
-        iconURL: discordUser.displayAvatarURL({ extension: "png", size: 128 }),
-      });
-    }
     if (index === 0 && avatar) pageEmbed.setThumbnail(avatar.url);
     if (index === 0 && image) pageEmbed.setImage("attachment://badge-history.png");
     return pageEmbed;
@@ -2463,11 +2457,16 @@ function packChangelogReleases(
       `**${entry.version} - ${entry.date}**`,
       ...(entry.descriptions.length ? entry.descriptions.map((description) => `- ${description}`) : ["- No changes recorded."]),
     ];
-    for (const value of chunkText(lines.join("\n"), 1024)) {
-      if (current && current.length + value.length + 1 > 1024) flush();
-      current ??= { name: `${entry.version} - ${entry.date} (older releases)`, lines: [], length: 0 };
-      current.lines.push(value);
-      current.length += value.length + 1;
+    // Pack line by line so a release fills the rest of the current field before
+    // starting a new one; whole-entry packing wasted that space and dropped
+    // older releases once the change log outgrew Discord's 25-field limit.
+    for (const line of lines) {
+      for (const value of chunkText(line, 1024)) {
+        if (current && current.length + value.length + 1 > 1024) flush();
+        current ??= { name: `${entry.version} - ${entry.date} (older releases)`, lines: [], length: 0 };
+        current.lines.push(value);
+        current.length += value.length + 1;
+      }
     }
   }
   flush();

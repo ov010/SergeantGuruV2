@@ -1,5 +1,10 @@
 # Change Log
 
+## 3.10.0 - 2026-11-22
+- Removed the Discord profile headshot and the `Discord: <username>` author line from the top of `/background check`.
+- Moved the Discord Account section below Roblox Account, so the report reads Roblox Account and then Discord Account; every embed in a multi-embed report keeps the same section order and formatting.
+- `/changelog` keeps every release again: older releases now fill the remaining space in each field instead of the oldest entries being dropped once the log outgrew Discord's 25-field limit.
+
 ## 3.9.0 - 2026-11-22
 - Moved the Roblox user ID and account creation date from the top of the report into the Roblox Account section.
 - The Discord Account section now shows the `<@id>` mention above the username instead of a separate ID Ping line, and the report includes the Discord profile headshot as the embed author icon alongside the Roblox headshot thumbnail.
