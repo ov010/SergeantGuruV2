@@ -35,6 +35,7 @@ const {
   createInfoEmbed,
   formatExploitWatcher,
   formatLinkedDiscordAccounts,
+  watcherGuildReasons,
   createPingEmbed,
   createGroupsEmbed,
   createProfileLinkEmbed,
@@ -400,6 +401,7 @@ test("watcher accounts are merged by Discord ID with every source", () => {
   const merged = formatLinkedDiscordAccounts([
     {
       watcher: "Roblox Watcher",
+      product: "robloxwatcher",
       accounts: [
         { id: "1522651757115609140", sources: ["Bloxlink"], flagged: true },
         { id: "111111111111111111", sources: ["Discord Profile"], flagged: false },
@@ -407,6 +409,7 @@ test("watcher accounts are merged by Discord ID with every source", () => {
     },
     {
       watcher: "Exploit Watcher",
+      product: "exploitwatcher",
       accounts: [
         { id: "1522651757115609140", sources: ["Discord Profile"], flagged: false },
         { id: "1533296343572025416", sources: ["Bloxlink"], flagged: true },
@@ -418,6 +421,38 @@ test("watcher accounts are merged by Discord ID with every source", () => {
   assert.match(merged, /`1533296343572025416` — Bloxlink · Exploit Watcher — flagged/);
   assert.equal(merged.match(/1522651757115609140/g).length, 1);
   assert.equal(formatLinkedDiscordAccounts([]), "");
+});
+
+test("flagged accounts show the server evidence behind the flag", () => {
+  const merged = formatLinkedDiscordAccounts([
+    {
+      watcher: "Exploit Watcher",
+      product: "exploitwatcher",
+      accounts: [{
+        id: "1522651757115609140",
+        sources: ["Bloxlink"],
+        flagged: true,
+        reasons: ["Xeno (Executor Reselling Server) · 80 messages · last seen 2026-02-03"],
+      }],
+    },
+  ]);
+  assert.match(merged, /↳ Exploit Watcher: Xeno \(Executor Reselling Server\) · 80 messages · last seen 2026-02-03/);
+});
+
+test("watcher guild reasons describe server type, activity and recency", () => {
+  const reasons = watcherGuildReasons({
+    flagged: true,
+    guilds: [
+      { name: "Xeno", guildTypes: [{ name: "Executor Reselling Server" }], activity: { messages: 80, reactions: 2 }, lastSeen: "2026-02-03T04:05:06.000Z" },
+      { name: "Water", guildTypes: [], activity: { messages: 2, reactions: 4 }, lastSeen: "2026-11-01T00:00:00.000Z" },
+    ],
+  });
+  assert.deepEqual(reasons, [
+    "Xeno (Executor Reselling Server) · 80 messages, 2 reactions, last seen 2026-02-03",
+    "Water · 2 messages, 4 reactions, last seen 2026-11-01",
+  ]);
+  assert.deepEqual(watcherGuildReasons({ flagged: true, guilds: [] }), ["flagged account; no server details were reported"]);
+  assert.deepEqual(watcherGuildReasons({ flagged: false, guilds: [] }), []);
 });
 
 test("Exploit Watcher keeps linked accounts out of its own section", () => {

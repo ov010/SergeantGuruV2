@@ -1,5 +1,8 @@
 # Change Log
 
+## 3.1.3 - 2026-11-22
+- Flagged linked Discord accounts now explain the flag: the watcher's Discord lookup adds the flagged server, why that server is flagged, the messages, reactions or requests seen there, and when the account was last seen.
+
 ## 3.1.2 - 2026-11-22
 - The linked Discord accounts under the Roblox account details now merge Roblox Watcher and Exploit Watcher, deduplicated by Discord ID, with every link source and the watcher that reported each account; a Roblox Watcher section is only shown when it has no linked accounts to contribute.
 

@@ -1154,6 +1154,8 @@ interface WatcherAccount {
   id: string;
   sources: string[];
   flagged: boolean;
+  /** Server evidence from the watcher's Discord lookup, filled in for flagged accounts. */
+  reasons?: string[];
 }
 
 interface WatcherResult {
@@ -1161,8 +1163,11 @@ interface WatcherResult {
   status: string;
 }
 
+type WatcherProduct = "robloxwatcher" | "exploitwatcher";
+
 interface WatcherAccountGroup {
   watcher: string;
+  product: WatcherProduct;
   accounts: WatcherAccount[];
 }
 
@@ -1180,12 +1185,12 @@ function watcherAccounts(payload: JsonObject): WatcherAccount[] {
 // One Discord ID can be linked through both watchers (and with different link
 // sources), so merge those entries and keep every source that reported it.
 export function formatLinkedDiscordAccounts(groups: WatcherAccountGroup[]): string {
-  const merged = new Map<string, { sources: string[]; flagged: boolean; watchers: string[] }>();
+  const merged = new Map<string, { sources: string[]; flagged: boolean; watchers: string[]; reasons: Array<{ watcher: string; text: string }> }>();
   for (const group of groups) {
     for (const account of group.accounts) {
       let entry = merged.get(account.id);
       if (!entry) {
-        entry = { sources: [], flagged: false, watchers: [] };
+        entry = { sources: [], flagged: false, watchers: [], reasons: [] };
         merged.set(account.id, entry);
       }
       for (const source of account.sources) {
@@ -1193,17 +1198,84 @@ export function formatLinkedDiscordAccounts(groups: WatcherAccountGroup[]): stri
       }
       entry.flagged = entry.flagged || account.flagged;
       if (!entry.watchers.includes(group.watcher)) entry.watchers.push(group.watcher);
+      for (const text of account.reasons ?? []) {
+        if (!entry.reasons.some((reason) => reason.watcher === group.watcher && reason.text === text)) {
+          entry.reasons.push({ watcher: group.watcher, text });
+        }
+      }
     }
   }
   if (!merged.size) return "";
   const flagged = [...merged.values()].filter((entry) => entry.flagged).length;
   const lines = [...merged].slice(0, WATCHER_LINKED_ACCOUNT_LIMIT).map(([id, entry]) => {
     const detail = [entry.sources.join(", "), entry.watchers.join(" + ")].filter(Boolean).join(" · ");
-    return `• \`${id}\`${detail ? ` — ${detail}` : ""}${entry.flagged ? " — flagged" : ""}`;
+    const main = `• \`${id}\`${detail ? ` — ${detail}` : ""}${entry.flagged ? " — flagged" : ""}`;
+    const reasons = entry.reasons.slice(0, WATCHER_REASON_LIMIT).map((reason) => `  ↳ ${reason.watcher}: ${reason.text}`);
+    return [main, ...reasons].join("\n");
   });
   const omitted = merged.size - lines.length;
   if (omitted > 0) lines.push(`… and ${omitted} more`);
   return `**Linked Discord accounts:** ${merged.size}${flagged ? `  •  **Flagged:** ${flagged}` : ""}\n${lines.join("\n")}`;
+}
+
+const WATCHER_REASON_LIMIT = 3;
+const WATCHER_REASON_GUILD_LIMIT = 2;
+
+// The Discord lookup is what explains a flag: the flagged servers the account
+// was seen in, why each server is flagged, and the activity behind it.
+export function watcherGuildReasons(payload: JsonObject): string[] {
+  const guilds = Array.isArray(payload.guilds) ? payload.guilds as JsonObject[] : [];
+  if (!guilds.length) return payload.flagged === true ? ["flagged account; no server details were reported"] : [];
+  const count = (value: unknown): number => Number(value ?? 0);
+  return guilds.slice(0, WATCHER_REASON_GUILD_LIMIT).map((guild) => {
+    const name = String(guild.name ?? "Unknown Server");
+    const types = Array.isArray(guild.guildTypes)
+      ? (guild.guildTypes as JsonObject[]).map((type) => String(type.name ?? "")).filter(Boolean)
+      : [];
+    const activity = (guild.activity ?? {}) as JsonObject;
+    const stats: string[] = [];
+    const messages = count(activity.messages);
+    const reactions = count(activity.reactions);
+    const requests = count(activity.scriptRequests) + count(activity.bypassBotUsages)
+      + count(activity.rr34Requests) + count(activity.nsfwRequests) + count(activity.erpInteractions);
+    if (messages) stats.push(`${messages.toLocaleString("en-US")} message${messages === 1 ? "" : "s"}`);
+    if (reactions) stats.push(`${reactions.toLocaleString("en-US")} reaction${reactions === 1 ? "" : "s"}`);
+    if (requests) stats.push(`${requests.toLocaleString("en-US")} request${requests === 1 ? "" : "s"}`);
+    const lastSeen = typeof guild.lastSeen === "string" ? new Date(guild.lastSeen) : undefined;
+    if (lastSeen && !Number.isNaN(lastSeen.getTime())) stats.push(`last seen ${lastSeen.toISOString().slice(0, 10)}`);
+    return `${name}${types.length ? ` (${types.join(", ")})` : ""}${stats.length ? ` · ${stats.join(", ")}` : ""}`;
+  });
+}
+
+async function fetchWatcherGuildReasons(product: WatcherProduct, discordId: string, signal?: AbortSignal): Promise<string[]> {
+  const api = product === "robloxwatcher" ? ROBLOX_WATCHER_API : EXPLOIT_WATCHER_API;
+  const key = product === "robloxwatcher" ? robloxWatcherApiKey : exploitWatcherApiKey;
+  if (!key) return [];
+  try {
+    const payload = await cachedRoblox(`${product}:discord:${discordId}`, 1800, async () => {
+      const response = await requestJson(`${api}/search/${encodeURIComponent(discordId)}`, {
+        headers: { Authorization: `Bearer ${key.replace(/^Bearer\s+/i, "")}`, Accept: "application/json" },
+        signal,
+      });
+      if (response.status === 404) return {} as JsonObject;
+      if (!response.ok) throw new BotError(`${product === "robloxwatcher" ? "Roblox Watcher" : "Exploit Watcher"} could not complete the Discord lookup (HTTP ${response.status}).`);
+      return await response.json() as JsonObject;
+    }, signal);
+    return watcherGuildReasons(payload);
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    log("Watcher Discord detail lookup failed", error);
+    return [];
+  }
+}
+
+async function attachWatcherReasons(groups: WatcherAccountGroup[], signal?: AbortSignal): Promise<void> {
+  await Promise.all(groups.map(async (group) => {
+    await Promise.all(group.accounts.filter((account) => account.flagged).map(async (account) => {
+      const reasons = await fetchWatcherGuildReasons(group.product, account.id, signal);
+      if (reasons.length) account.reasons = reasons;
+    }));
+  }));
 }
 
 // Roblox Watcher only reports linked accounts, and those move into the shared
@@ -1427,10 +1499,12 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
       return undefined;
     }),
   ]);
-  const linkedAccounts = formatLinkedDiscordAccounts([
-    { watcher: "Roblox Watcher", accounts: robloxWatcher.accounts },
-    { watcher: "Exploit Watcher", accounts: exploitWatcher.accounts },
-  ]);
+  const linkedGroups: WatcherAccountGroup[] = [
+    { watcher: "Roblox Watcher", product: "robloxwatcher", accounts: robloxWatcher.accounts },
+    { watcher: "Exploit Watcher", product: "exploitwatcher", accounts: exploitWatcher.accounts },
+  ];
+  await attachWatcherReasons(linkedGroups, signal);
+  const linkedAccounts = formatLinkedDiscordAccounts(linkedGroups);
   const blacklist = trelloText(blacklistCards, user.name, "blacklist");
   const secret = trelloText(secretCards, user.name, "secret");
   if (signal.aborted) throw signal.reason;
