@@ -1,5 +1,8 @@
 # Change Log
 
+## 3.1.4 - 2026-11-22
+- Linked Discord accounts in `/background check` now render as real user mentions, allowed only for the listed accounts, so they ping the linked users. The Exploit Watcher records remain at the bottom of the embed.
+
 ## 3.1.3 - 2026-11-22
 - Flagged linked Discord accounts now explain the flag: the watcher's Discord lookup adds the flagged server, why that server is flagged, the messages, reactions or requests seen there, and when the account was last seen.
 

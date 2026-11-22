@@ -417,8 +417,8 @@ test("watcher accounts are merged by Discord ID with every source", () => {
     },
   ]);
   assert.match(merged, /Linked Discord accounts:\*\* 3  •  \*\*Flagged:\*\* 2/);
-  assert.match(merged, /`1522651757115609140` — Bloxlink, Discord Profile · Roblox Watcher \+ Exploit Watcher — flagged/);
-  assert.match(merged, /`1533296343572025416` — Bloxlink · Exploit Watcher — flagged/);
+  assert.match(merged, /<@1522651757115609140> — Bloxlink, Discord Profile · Roblox Watcher \+ Exploit Watcher — flagged/);
+  assert.match(merged, /<@1533296343572025416> — Bloxlink · Exploit Watcher — flagged/);
   assert.equal(merged.match(/1522651757115609140/g).length, 1);
   assert.equal(formatLinkedDiscordAccounts([]), "");
 });

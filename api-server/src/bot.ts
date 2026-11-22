@@ -1209,7 +1209,8 @@ export function formatLinkedDiscordAccounts(groups: WatcherAccountGroup[]): stri
   const flagged = [...merged.values()].filter((entry) => entry.flagged).length;
   const lines = [...merged].slice(0, WATCHER_LINKED_ACCOUNT_LIMIT).map(([id, entry]) => {
     const detail = [entry.sources.join(", "), entry.watchers.join(" + ")].filter(Boolean).join(" · ");
-    const main = `• \`${id}\`${detail ? ` — ${detail}` : ""}${entry.flagged ? " — flagged" : ""}`;
+    const label = isDiscordUserId(id) ? `<@${id}>` : `\`${id}\``;
+    const main = `• ${label}${detail ? ` — ${detail}` : ""}${entry.flagged ? " — flagged" : ""}`;
     const reasons = entry.reasons.slice(0, WATCHER_REASON_LIMIT).map((reason) => `  ↳ ${reason.watcher}: ${reason.text}`);
     return [main, ...reasons].join("\n");
   });
@@ -1485,7 +1486,7 @@ function detailsCreated(details: JsonObject): Date | undefined {
   return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
-async function backgroundCheck(username: string, signal: AbortSignal = new AbortController().signal): Promise<{ embed: EmbedBuilder; image?: AttachmentBuilder }> {
+async function backgroundCheck(username: string, signal: AbortSignal = new AbortController().signal): Promise<{ embed: EmbedBuilder; image?: AttachmentBuilder; mentions: string[] }> {
   const user = await resolveUser(username, signal);
   const [groups, details, history, friends, blacklistCards, secretCards, xtracker, robloxWatcher, exploitWatcher, avatarSignals, gameSignals, inventorySignals, avatar] = await Promise.all([
     fetchGroups(user.id, signal), fetchProfileDetails(user.id, signal), fetchUsernameHistory(user.id, signal), fetchFriendCounts(user.id, signal),
@@ -1505,6 +1506,9 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
   ];
   await attachWatcherReasons(linkedGroups, signal);
   const linkedAccounts = formatLinkedDiscordAccounts(linkedGroups);
+  const mentions = [...new Set(linkedGroups.flatMap((group) => group.accounts.map((account) => account.id)))]
+    .filter(isDiscordUserId)
+    .slice(0, WATCHER_LINKED_ACCOUNT_LIMIT);
   const blacklist = trelloText(blacklistCards, user.name, "blacklist");
   const secret = trelloText(secretCards, user.name, "secret");
   if (signal.aborted) throw signal.reason;
@@ -1676,6 +1680,7 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
   return {
     embed,
     ...(image ? { image: new AttachmentBuilder(image, { name: "badge-history.png" }) } : {}),
+    mentions,
   };
 }
 
@@ -2113,6 +2118,8 @@ async function sendBackgroundCheck(interaction: ChatInputCommandInteraction, req
       embeds: [outcome.result.embed],
       files: outcome.result.image ? [outcome.result.image] : [],
       components: [],
+      // The client blocks mentions by default; allow exactly the linked accounts shown.
+      allowedMentions: { parse: [], users: outcome.result.mentions },
     });
   } catch (error) {
     if (deadlineExpired) {
