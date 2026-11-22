@@ -25,6 +25,7 @@ const {
   COLOR_TARGET_PAGE_SIZE,
   createAdminModal,
   createAdminPanelMenu,
+  sendAdminPanel,
   createApiStatusEmbed,
   createColorMenu,
   createColorTargetMenu,
@@ -184,6 +185,28 @@ test("admin and data menus describe every option", () => {
     const options = menu.toJSON().components[0].options;
     assert.ok(options.every((option) => option.description?.trim()), "every menu option needs a description");
   }
+});
+
+test("/admin is limited to the bot owner", async () => {
+  const denied = [];
+  await sendAdminPanel({
+    user: { id: "999999999999999999" },
+    reply: async (payload) => { denied.push(payload); },
+  });
+  assert.equal(denied.length, 1);
+  assert.equal(denied[0].embeds[0].toJSON().title, "Access Denied");
+  assert.equal(denied[0].components, undefined, "non-owners must not receive the admin menu");
+
+  const opened = [];
+  await sendAdminPanel({
+    user: { id: "1186370477606838375" },
+    reply: async (payload) => { opened.push(payload); },
+  });
+  assert.equal(opened.length, 1);
+  const embed = opened[0].embeds[0].toJSON();
+  assert.equal(embed.title, "Admin Panel");
+  assert.match(embed.description, /Only the bot owner/);
+  assert.ok(opened[0].components.length > 0, "the owner receives the admin menu");
 });
 
 test("/data opens separate views for access, bot/API, and colors", () => {

@@ -401,7 +401,7 @@ function removeAuthorization(table: "authorized_users" | "authorized_roles", id:
 function createAdminPanelEmbed(): EmbedBuilder {
   const users = db.prepare("SELECT discord_user_id FROM authorized_users ORDER BY discord_user_id").all() as Array<{ discord_user_id: string }>;
   const roles = db.prepare("SELECT discord_role_id FROM authorized_roles ORDER BY discord_role_id").all() as Array<{ discord_role_id: string }>;
-  const embed = makeEmbed("Admin Panel", "This panel is public. Only the bot owner can make changes.", "Info");
+  const embed = makeEmbed("Admin Panel", "Only the bot owner can open this panel.", "Info");
   embed.addFields(
     { name: "Authorized users", value: String(users.length), inline: true },
     { name: "Authorized roles", value: String(roles.length), inline: true },
@@ -1350,6 +1350,16 @@ function isOwner(userId: string): boolean {
   return userId === OWNER_ID;
 }
 
+// Opening the panel is owner-only. The menu, modal, and color handlers also
+// check isOwner, so a leaked message cannot change anything either.
+export async function sendAdminPanel(interaction: ChatInputCommandInteraction): Promise<void> {
+  if (!isOwner(interaction.user.id)) return replyDenied(interaction);
+  await interaction.reply({
+    embeds: [createAdminPanelEmbed()],
+    components: [createAdminPanelMenu()],
+  });
+}
+
 function isInteractionAuthorized(interaction: { user: { id: string }; member: unknown }): boolean {
   const member = interaction.member instanceof Object && "roles" in interaction.member
     ? interaction.member as { roles: unknown }
@@ -1998,13 +2008,7 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
     await interaction.reply({ embeds: pagination.embeds, components: pagination.components });
     return;
   }
-  if (name === "admin") {
-    await interaction.reply({
-      embeds: [createAdminPanelEmbed()],
-      components: [createAdminPanelMenu()],
-    });
-    return;
-  }
+  if (name === "admin") return sendAdminPanel(interaction);
   if (name === "info") {
     const stats = db.prepare("SELECT (SELECT COUNT(*) FROM authorized_users) AS users, (SELECT COUNT(*) FROM authorized_roles) AS roles").get() as JsonObject;
     let robloxOnline = false;

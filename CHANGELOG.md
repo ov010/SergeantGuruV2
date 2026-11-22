@@ -1,5 +1,8 @@
 # Change Log
 
+## 2.10.1 - 2026-11-22
+- `/admin` is now owner-only: anyone else gets Access Denied instead of the admin panel. The panel's menu, modal, and color handlers already checked the owner, but the command that opened the panel did not.
+
 ## 2.10.0 - 2026-11-22
 - Removed `/grade`: the evaluation and Host Rating menus, grade reports, the Google Sheets rubric engine, and the grading feedback channel are gone.
 - Restored Discord's native "bot is thinking" state: waiting commands defer their reply instead of editing a custom spinner, and `/test` is removed with it.
