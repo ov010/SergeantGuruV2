@@ -34,7 +34,7 @@ const {
   createAuthorizedUserEmbed,
   createInfoEmbed,
   formatExploitWatcher,
-  formatExploitWatcherAccounts,
+  formatLinkedDiscordAccounts,
   createPingEmbed,
   createGroupsEmbed,
   createProfileLinkEmbed,
@@ -396,8 +396,32 @@ test("/info reports bot statistics and integrations", () => {
   assert.equal(embed.fields.find(({ name }) => name === "Uptime").value, "1h 0s");
 });
 
-test("Exploit Watcher separates linked accounts from the injection status", () => {
-  const payload = {
+test("watcher accounts are merged by Discord ID with every source", () => {
+  const merged = formatLinkedDiscordAccounts([
+    {
+      watcher: "Roblox Watcher",
+      accounts: [
+        { id: "1522651757115609140", sources: ["Bloxlink"], flagged: true },
+        { id: "111111111111111111", sources: ["Discord Profile"], flagged: false },
+      ],
+    },
+    {
+      watcher: "Exploit Watcher",
+      accounts: [
+        { id: "1522651757115609140", sources: ["Discord Profile"], flagged: false },
+        { id: "1533296343572025416", sources: ["Bloxlink"], flagged: true },
+      ],
+    },
+  ]);
+  assert.match(merged, /Linked Discord accounts:\*\* 3  •  \*\*Flagged:\*\* 2/);
+  assert.match(merged, /`1522651757115609140` — Bloxlink, Discord Profile · Roblox Watcher \+ Exploit Watcher — flagged/);
+  assert.match(merged, /`1533296343572025416` — Bloxlink · Exploit Watcher — flagged/);
+  assert.equal(merged.match(/1522651757115609140/g).length, 1);
+  assert.equal(formatLinkedDiscordAccounts([]), "");
+});
+
+test("Exploit Watcher keeps linked accounts out of its own section", () => {
+  const status = formatExploitWatcher({
     robloxId: "9876543210",
     flagged: false,
     totalInjections: 5,
@@ -410,15 +434,10 @@ test("Exploit Watcher separates linked accounts from the injection status", () =
       { name: "Base Wars: The Land!", totalInjections: 3, lastInjection: "2026-07-01T17:00:00.000Z" },
       { name: "Roblox", totalInjections: 2, lastInjection: "2026-06-21T22:10:00.000Z" },
     ],
-  };
-  const accounts = formatExploitWatcherAccounts(payload);
-  assert.match(accounts, /Linked Discord accounts:\*\* 2  •  \*\*Flagged:\*\* 1/);
-  assert.match(accounts, /`1522651757115609140` \(Bloxlink\) — flagged/);
-  const status = formatExploitWatcher(payload);
+  });
   assert.match(status, /\u{1F534} \*\*Flagged\*\* — 5 injections in 2 games/u);
   assert.match(status, /Base Wars: The Land! — 3 \(last 2026-07-01\)/);
   assert.doesNotMatch(status, /Linked Discord accounts/);
-  assert.equal(formatExploitWatcherAccounts({ discordAccounts: [] }), "");
 });
 
 test("Exploit Watcher flags an account whose linked Discord accounts are flagged", () => {

@@ -1150,14 +1150,67 @@ async function fetchXtracker(userId: string, signal?: AbortSignal): Promise<stri
   }
 }
 
-const ROBLOX_WATCHER_ACCOUNT_LIMIT = 8;
+interface WatcherAccount {
+  id: string;
+  sources: string[];
+  flagged: boolean;
+}
 
-// Roblox Watcher reports the Discord accounts linked to a Roblox account and
-// whether each was seen in a flagged server. Its Roblox-side `flagged` value is
-// always false, so the linked accounts carry the useful signal.
-async function fetchRobloxWatcher(userId: string, signal?: AbortSignal): Promise<string> {
+interface WatcherResult {
+  accounts: WatcherAccount[];
+  status: string;
+}
+
+interface WatcherAccountGroup {
+  watcher: string;
+  accounts: WatcherAccount[];
+}
+
+export const WATCHER_LINKED_ACCOUNT_LIMIT = 8;
+
+function watcherAccounts(payload: JsonObject): WatcherAccount[] {
+  const accounts = Array.isArray(payload.discordAccounts) ? payload.discordAccounts as JsonObject[] : [];
+  return accounts.map((account) => ({
+    id: String(account.id ?? "Unknown"),
+    sources: Array.isArray(account.sources) ? account.sources.map(String) : [],
+    flagged: account.flagged === true,
+  }));
+}
+
+// One Discord ID can be linked through both watchers (and with different link
+// sources), so merge those entries and keep every source that reported it.
+export function formatLinkedDiscordAccounts(groups: WatcherAccountGroup[]): string {
+  const merged = new Map<string, { sources: string[]; flagged: boolean; watchers: string[] }>();
+  for (const group of groups) {
+    for (const account of group.accounts) {
+      let entry = merged.get(account.id);
+      if (!entry) {
+        entry = { sources: [], flagged: false, watchers: [] };
+        merged.set(account.id, entry);
+      }
+      for (const source of account.sources) {
+        if (!entry.sources.includes(source)) entry.sources.push(source);
+      }
+      entry.flagged = entry.flagged || account.flagged;
+      if (!entry.watchers.includes(group.watcher)) entry.watchers.push(group.watcher);
+    }
+  }
+  if (!merged.size) return "";
+  const flagged = [...merged.values()].filter((entry) => entry.flagged).length;
+  const lines = [...merged].slice(0, WATCHER_LINKED_ACCOUNT_LIMIT).map(([id, entry]) => {
+    const detail = [entry.sources.join(", "), entry.watchers.join(" + ")].filter(Boolean).join(" · ");
+    return `• \`${id}\`${detail ? ` — ${detail}` : ""}${entry.flagged ? " — flagged" : ""}`;
+  });
+  const omitted = merged.size - lines.length;
+  if (omitted > 0) lines.push(`… and ${omitted} more`);
+  return `**Linked Discord accounts:** ${merged.size}${flagged ? `  •  **Flagged:** ${flagged}` : ""}\n${lines.join("\n")}`;
+}
+
+// Roblox Watcher only reports linked accounts, and those move into the shared
+// header block, so its own section appears only when the lookup has no data.
+async function fetchRobloxWatcher(userId: string, signal?: AbortSignal): Promise<WatcherResult> {
   if (!robloxWatcherApiKey) {
-    return "Not configured. Add `ROBLOX_WATCHER_API_KEY` to enable this check.";
+    return { accounts: [], status: "Not configured. Add `ROBLOX_WATCHER_API_KEY` to enable this check." };
   }
   try {
     const payload = await cachedRoblox(`roblox_watcher:${userId}`, 1800, async () => {
@@ -1173,52 +1226,24 @@ async function fetchRobloxWatcher(userId: string, signal?: AbortSignal): Promise
       if (!response.ok) throw new BotError(`Roblox Watcher could not complete the request (HTTP ${response.status}).`);
       return await response.json() as JsonObject;
     }, signal);
-    const accounts = Array.isArray(payload.discordAccounts) ? payload.discordAccounts as JsonObject[] : [];
-    if (!accounts.length) return "No linked Discord accounts were found in the Roblox Watcher (NSFW/condo server) database.";
-    const flagged = accounts.filter((account) => account.flagged === true).length;
-    const lines = accounts.slice(0, ROBLOX_WATCHER_ACCOUNT_LIMIT).map((account) => {
-      const sources = Array.isArray(account.sources) && account.sources.length
-        ? ` (${account.sources.map(String).join(", ")})`
-        : "";
-      return `• \`${String(account.id ?? "Unknown")}\`${account.flagged === true ? " — flagged" : ""}${sources}`;
-    });
-    const omitted = accounts.length - lines.length;
-    if (omitted > 0) lines.push(`… and ${omitted} more`);
-    const heading = `**Linked Discord accounts:** ${accounts.length}${flagged ? `  •  **Flagged:** ${flagged}` : ""}`;
-    return `${heading}\n${lines.join("\n")}`;
+    const accounts = watcherAccounts(payload);
+    if (!accounts.length) return { accounts, status: "No linked Discord accounts were found in the Roblox Watcher (NSFW/condo server) database." };
+    return { accounts, status: "" };
   } catch (error) {
     if (signal?.aborted) throw error;
     log("Roblox Watcher lookup failed", error);
-    return errorText(error, "Roblox Watcher could not be reached right now.");
+    return { accounts: [], status: errorText(error, "Roblox Watcher could not be reached right now.") };
   }
 }
 
-const EXPLOIT_WATCHER_ACCOUNT_LIMIT = 8;
 const EXPLOIT_WATCHER_GAME_LIMIT = 5;
-
-// Exploit Watcher lists the injection history for a Roblox account and the
-// Discord accounts linked to it, flagging each side separately.
-export function formatExploitWatcherAccounts(payload: JsonObject): string {
-  const accounts = Array.isArray(payload.discordAccounts) ? payload.discordAccounts as JsonObject[] : [];
-  if (!accounts.length) return "";
-  const flaggedAccounts = accounts.filter((account) => account.flagged === true).length;
-  const lines = accounts.slice(0, EXPLOIT_WATCHER_ACCOUNT_LIMIT).map((account) => {
-    const sources = Array.isArray(account.sources) && account.sources.length
-      ? ` (${account.sources.map(String).join(", ")})`
-      : "";
-    return `• \`${String(account.id ?? "Unknown")}\`${sources}${account.flagged === true ? " — flagged" : ""}`;
-  });
-  const omitted = accounts.length - lines.length;
-  if (omitted > 0) lines.push(`… and ${omitted} more`);
-  return `**Linked Discord accounts:** ${accounts.length}${flaggedAccounts ? `  •  **Flagged:** ${flaggedAccounts}` : ""}\n${lines.join("\n")}`;
-}
 
 // A linked Discord account can be flagged even when the Roblox account itself
 // has no injections of its own, so either signal marks the lookup as flagged.
 export function formatExploitWatcher(payload: JsonObject): string {
-  const accounts = Array.isArray(payload.discordAccounts) ? payload.discordAccounts as JsonObject[] : [];
+  const accounts = watcherAccounts(payload);
   const games = Array.isArray(payload.injectedGames) ? payload.injectedGames as JsonObject[] : [];
-  const flaggedAccounts = accounts.filter((account) => account.flagged === true).length;
+  const flaggedAccounts = accounts.filter((account) => account.flagged).length;
   const injections = Number(payload.totalInjections ?? 0);
   const gameCount = Number(payload.totalGamesInjected ?? games.length);
   const flagged = payload.flagged === true || flaggedAccounts > 0 || injections > 0;
@@ -1244,9 +1269,9 @@ export function formatExploitWatcher(payload: JsonObject): string {
   return blocks.join("\n");
 }
 
-async function fetchExploitWatcher(userId: string, signal?: AbortSignal): Promise<{ accounts: string; status: string }> {
+async function fetchExploitWatcher(userId: string, signal?: AbortSignal): Promise<WatcherResult> {
   if (!exploitWatcherApiKey) {
-    return { accounts: "", status: "Not configured. Add `EXPLOIT_WATCHER_API_KEY` to enable this check." };
+    return { accounts: [], status: "Not configured. Add `EXPLOIT_WATCHER_API_KEY` to enable this check." };
   }
   try {
     const payload = await cachedRoblox(`exploit_watcher:${userId}`, 1800, async () => {
@@ -1262,11 +1287,11 @@ async function fetchExploitWatcher(userId: string, signal?: AbortSignal): Promis
       if (!response.ok) throw new BotError(`Exploit Watcher could not complete the request (HTTP ${response.status}).`);
       return await response.json() as JsonObject;
     }, signal);
-    return { accounts: formatExploitWatcherAccounts(payload), status: formatExploitWatcher(payload) };
+    return { accounts: watcherAccounts(payload), status: formatExploitWatcher(payload) };
   } catch (error) {
     if (signal?.aborted) throw error;
     log("Exploit Watcher lookup failed", error);
-    return { accounts: "", status: errorText(error, "Exploit Watcher could not be reached right now.") };
+    return { accounts: [], status: errorText(error, "Exploit Watcher could not be reached right now.") };
   }
 }
 
@@ -1401,6 +1426,10 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
       log("Roblox avatar unavailable", error);
       return undefined;
     }),
+  ]);
+  const linkedAccounts = formatLinkedDiscordAccounts([
+    { watcher: "Roblox Watcher", accounts: robloxWatcher.accounts },
+    { watcher: "Exploit Watcher", accounts: exploitWatcher.accounts },
   ]);
   const blacklist = trelloText(blacklistCards, user.name, "blacklist");
   const secret = trelloText(secretCards, user.name, "secret");
@@ -1543,7 +1572,7 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
     .setDescription([
       `**Roblox User ID** \`${user.id}\``,
       `**Account Created** ${created ? `${discordTimestamp(created, "D")} (${discordTimestamp(created, "R")})` : "Unknown"}`,
-      ...(exploitWatcher.accounts ? [`\n${exploitWatcher.accounts}`] : []),
+      ...(linkedAccounts ? [`\n${linkedAccounts}`] : []),
     ].join("\n"))
     .setColor(embedColor("Background Check"));
   if (avatar) embed.setThumbnail(avatar.url);
@@ -1556,7 +1585,7 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
     },
     { name: "Ranks & Division", value: `${SECTION_DIVIDER}\n${formatGroups(groups)}`.slice(0, 1024), inline: false },
     { name: "Punishment Record", value: `${SECTION_DIVIDER}\n${punishmentRecord}`.slice(0, 1024), inline: false },
-    { name: "Roblox Watcher", value: `${SECTION_DIVIDER}\n${robloxWatcher}`.slice(0, 1024), inline: false },
+    ...(robloxWatcher.status ? [{ name: "Roblox Watcher", value: `${SECTION_DIVIDER}\n${robloxWatcher.status}`.slice(0, 1024), inline: false }] : []),
     { name: "Exploit Watcher", value: `${SECTION_DIVIDER}\n${exploitWatcher.status}`.slice(0, 1024), inline: false },
   );
   if (!image) {

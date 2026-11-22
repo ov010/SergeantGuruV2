@@ -1,5 +1,8 @@
 # Change Log
 
+## 3.1.2 - 2026-11-22
+- The linked Discord accounts under the Roblox account details now merge Roblox Watcher and Exploit Watcher, deduplicated by Discord ID, with every link source and the watcher that reported each account; a Roblox Watcher section is only shown when it has no linked accounts to contribute.
+
 ## 3.1.1 - 2026-11-22
 - `/background check` now lists the Exploit Watcher Discord accounts directly under the Roblox user ID and creation date, instead of at the bottom inside the Exploit Watcher section.
 - Fixed Exploit Watcher showing "Not flagged" for accounts whose linked Discord accounts are flagged but which have no injections of their own; the flagged linked accounts now mark the lookup as flagged.
