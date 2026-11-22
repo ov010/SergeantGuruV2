@@ -1210,17 +1210,24 @@ export function formatLinkedDiscordAccounts(groups: WatcherAccountGroup[]): stri
   const lines = [...merged].slice(0, WATCHER_LINKED_ACCOUNT_LIMIT).map(([id, entry]) => {
     const detail = [entry.sources.join(", "), entry.watchers.join(" + ")].filter(Boolean).join(" · ");
     const label = isDiscordUserId(id) ? `<@${id}>` : `\`${id}\``;
-    const main = `• ${label}${detail ? ` — ${detail}` : ""}${entry.flagged ? " — flagged" : ""}`;
-    const reasons = entry.reasons.slice(0, WATCHER_REASON_LIMIT).map((reason) => `  ↳ ${reason.watcher}: ${reason.text}`);
-    return [main, ...reasons].join("\n");
+    return `• ${label}${detail ? ` — ${detail}` : ""}${entry.flagged ? " — flagged" : ""}`;
   });
   const omitted = merged.size - lines.length;
   if (omitted > 0) lines.push(`… and ${omitted} more`);
   return `**Linked Discord accounts:** ${merged.size}${flagged ? `  •  **Flagged:** ${flagged}` : ""}\n${lines.join("\n")}`;
 }
 
-const WATCHER_REASON_LIMIT = 3;
+const WATCHER_EVIDENCE_LIMIT = 6;
 const WATCHER_REASON_GUILD_LIMIT = 2;
+
+// Server evidence belongs with the watcher section it came from, so the header
+// block keeps just the mentioned accounts.
+export function formatWatcherEvidence(accounts: WatcherAccount[]): string {
+  return accounts.flatMap((account) => (account.reasons ?? []).map((text) => {
+    const label = isDiscordUserId(account.id) ? `<@${account.id}>` : `\`${account.id}\``;
+    return `↳ ${label}: ${text}`;
+  })).slice(0, WATCHER_EVIDENCE_LIMIT).join("\n");
+}
 
 // The Discord lookup is what explains a flag: the flagged servers the account
 // was seen in, why each server is flagged, and the activity behind it.
@@ -1506,6 +1513,10 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
   ];
   await attachWatcherReasons(linkedGroups, signal);
   const linkedAccounts = formatLinkedDiscordAccounts(linkedGroups);
+  const robloxWatcherEvidence = formatWatcherEvidence(robloxWatcher.accounts);
+  const exploitWatcherEvidence = formatWatcherEvidence(exploitWatcher.accounts);
+  const robloxWatcherField = [robloxWatcher.status, robloxWatcherEvidence].filter(Boolean).join("\n");
+  const exploitWatcherField = [exploitWatcher.status, exploitWatcherEvidence].filter(Boolean).join("\n");
   const mentions = [...new Set(linkedGroups.flatMap((group) => group.accounts.map((account) => account.id)))]
     .filter(isDiscordUserId)
     .slice(0, WATCHER_LINKED_ACCOUNT_LIMIT);
@@ -1663,8 +1674,8 @@ async function backgroundCheck(username: string, signal: AbortSignal = new Abort
     },
     { name: "Ranks & Division", value: `${SECTION_DIVIDER}\n${formatGroups(groups)}`.slice(0, 1024), inline: false },
     { name: "Punishment Record", value: `${SECTION_DIVIDER}\n${punishmentRecord}`.slice(0, 1024), inline: false },
-    ...(robloxWatcher.status ? [{ name: "Roblox Watcher", value: `${SECTION_DIVIDER}\n${robloxWatcher.status}`.slice(0, 1024), inline: false }] : []),
-    { name: "Exploit Watcher", value: `${SECTION_DIVIDER}\n${exploitWatcher.status}`.slice(0, 1024), inline: false },
+    ...(robloxWatcherField ? [{ name: "Roblox Watcher", value: `${SECTION_DIVIDER}\n${robloxWatcherField}`.slice(0, 1024), inline: false }] : []),
+    { name: "Exploit Watcher", value: `${SECTION_DIVIDER}\n${exploitWatcherField}`.slice(0, 1024), inline: false },
   );
   if (!image) {
     embed.addFields({

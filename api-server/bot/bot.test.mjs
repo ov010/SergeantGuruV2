@@ -36,6 +36,7 @@ const {
   formatExploitWatcher,
   formatLinkedDiscordAccounts,
   watcherGuildReasons,
+  formatWatcherEvidence,
   createPingEmbed,
   createGroupsEmbed,
   createProfileLinkEmbed,
@@ -423,20 +424,18 @@ test("watcher accounts are merged by Discord ID with every source", () => {
   assert.equal(formatLinkedDiscordAccounts([]), "");
 });
 
-test("flagged accounts show the server evidence behind the flag", () => {
-  const merged = formatLinkedDiscordAccounts([
-    {
-      watcher: "Exploit Watcher",
-      product: "exploitwatcher",
-      accounts: [{
-        id: "1522651757115609140",
-        sources: ["Bloxlink"],
-        flagged: true,
-        reasons: ["Xeno (Executor Reselling Server) · 80 messages · last seen 2026-02-03"],
-      }],
-    },
-  ]);
-  assert.match(merged, /↳ Exploit Watcher: Xeno \(Executor Reselling Server\) · 80 messages · last seen 2026-02-03/);
+test("watcher sections show the server evidence behind each flag", () => {
+  const accounts = [{
+    id: "1522651757115609140",
+    sources: ["Bloxlink"],
+    flagged: true,
+    reasons: ["Xeno (Executor Reselling Server) · 80 messages · last seen 2026-02-03"],
+  }];
+  const evidence = formatWatcherEvidence(accounts);
+  assert.match(evidence, /↳ <@1522651757115609140>: Xeno \(Executor Reselling Server\) · 80 messages · last seen 2026-02-03/);
+  const header = formatLinkedDiscordAccounts([{ watcher: "Exploit Watcher", product: "exploitwatcher", accounts }]);
+  assert.doesNotMatch(header, /↳/);
+  assert.match(header, /<@1522651757115609140> — Bloxlink · Exploit Watcher — flagged/);
 });
 
 test("watcher guild reasons describe server type, activity and recency", () => {

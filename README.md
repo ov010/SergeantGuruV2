@@ -37,10 +37,10 @@ returns the account header with a headshot and the linked Discord accounts
 merged from Roblox Watcher and Exploit Watcher, account, community and
 inventory figures, Alt Risk, ranks, the punishment record (blacklist, Secret
 Service and [x]Tracker), Exploit Watcher's injection history, and the badge
-chart. Each flagged linked account lists the flagged server, the reason the
-server is flagged, and the activity seen there. Accounts are rendered as
-mentions so they ping the linked Discord users; the Exploit Watcher records
-stay at the bottom of the embed.
+chart. Linked accounts are rendered as mentions so they ping the linked
+Discord users. Each watcher section at the bottom lists the flagged servers
+behind the accounts it reported, why each server is flagged, and the activity
+seen there; the Exploit Watcher records stay at the bottom of the embed.
 `/ping` is public and reports Discord gateway latency, round trip and uptime;
 every other command except `/admin` needs granted access. All slash commands
 are registered globally with guild, bot-DM, and private-channel contexts and

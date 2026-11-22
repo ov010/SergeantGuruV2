@@ -1,5 +1,8 @@
 # Change Log
 
+## 3.1.5 - 2026-11-22
+- Moved the flagged-server evidence lines out of the linked-accounts header and into the matching Roblox Watcher and Exploit Watcher sections at the bottom of `/background check`, so the header keeps the mentioned accounts and the why stays with the records.
+
 ## 3.1.4 - 2026-11-22
 - Linked Discord accounts in `/background check` now render as real user mentions, allowed only for the listed accounts, so they ping the linked users. The Exploit Watcher records remain at the bottom of the embed.
 
