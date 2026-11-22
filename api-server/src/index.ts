@@ -4,15 +4,9 @@ import { setBotProcessStatus } from "./lib/bot-status";
 import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const rawPort = process.env["PORT"];
+const rawPort = process.env["PORT"]?.trim() || "3000";
 
-if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
-}
-
-const normalizedPort = rawPort.trim();
+const normalizedPort = rawPort;
 const port = Number(normalizedPort);
 
 if (

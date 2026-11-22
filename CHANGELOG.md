@@ -1,5 +1,10 @@
 # Change Log
 
+## 2.9.2 - 2026-11-22
+- The start script now uses `--env-file-if-exists`, so the bot can run on a host that injects environment variables and has no `.env` file, while a local checkout still reads its `.env`.
+- `esbuild`, `esbuild-plugin-pino`, and `pino-pretty` are now runtime dependencies, so hosts that install production dependencies only can still bundle `dist/` before starting.
+- `PORT` falls back to 3000 when the host does not provide one, instead of refusing to start.
+
 ## 2.9.1 - 2026-11-19
 - `/background check` no longer drops the badge chart silently: when badge history cannot be loaded or drawn, the embed now states the reason.
 - A rejected Roblox Open Cloud key now reports that the key may be inactive, expired, or missing this machine's IP address from its allowed IPs, instead of only telling the owner to replace the secret.
