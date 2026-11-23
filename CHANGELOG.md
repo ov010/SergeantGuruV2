@@ -1,5 +1,8 @@
 # Change Log
 
+## 2.0.61 - 2026-11-23
+- Added a Division History section to `/background check` that reads the public CBRN division log and lists each division stint with join and leave dates as Discord timestamps and its duration; ongoing stints count to the current time.
+
 ## 2.0.60 - 2026-11-22
 - Removed the blank lines and the Community and Inventory labels from the Roblox Account section, leaving one continuous list.
 - Restored the circular outline around the Roblox headshot in badge charts without bringing back the chart-point marker rings.

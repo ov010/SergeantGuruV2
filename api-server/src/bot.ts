@@ -54,6 +54,16 @@ const ROBLOX_WATCHER_API = "https://api.robloxwatcher.com/api/v1/robloxwatcher";
 const EXPLOIT_WATCHER_API = "https://api.robloxwatcher.com/api/v1/exploitwatcher";
 const BLACKLIST_BOARD = "gsCa53Bt";
 const SECRET_SERVICE_BOARD = "xgGFFrH3";
+const DIVISION_HISTORY_SHEET_ID = "1GXA3k6xLQrKyC6M2MUdrC2Ld75Nlx_deVJL9rWvVZPo";
+const DIVISION_HISTORY_CACHE_SECONDS = 15 * 60;
+const DIVISION_HISTORY_TABS = [
+  { division: "Army", code: "Army", tab: "Army-RobloxHistory" },
+  { division: "Cyberguard", code: "CG", tab: "CG-RobloxHistory" },
+  { division: "Flame Troopers", code: "FT", tab: "FT-RobloxHistory" },
+  { division: "Special Forces", code: "SF", tab: "SF-RobloxHistory" },
+  { division: "Border Operations", code: "BO", tab: "BO-RobloxHistory" },
+  { division: "Secret Service", code: "SS", tab: "SS-RobloxHistory" },
+] as const;
 const NONE = "None";
 const SECTION_DIVIDER = "═".repeat(24);
 const MAX_RATE_LIMIT_RETRIES = 5;
@@ -1579,6 +1589,224 @@ function detailsCreated(details: JsonObject): Date | undefined {
   return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
+interface DivisionHistoryTab {
+  division: string;
+  code: string;
+  tab: string;
+}
+
+export interface DivisionHistoryRecord {
+  userId: string;
+  division: string;
+  action: "join" | "leave";
+  at: number;
+}
+
+export interface DivisionStint {
+  division: string;
+  joined?: Date;
+  left?: Date;
+  ongoing: boolean;
+}
+
+const DIVISION_MONTHS: Record<string, number> = {
+  january: 1, jan: 1, february: 2, feb: 2, march: 3, mar: 3, april: 4, apr: 4,
+  may: 5, june: 6, jun: 6, july: 7, jul: 7, august: 8, aug: 8,
+  september: 9, sept: 9, sep: 9, october: 10, oct: 10, november: 11, nov: 11,
+  december: 12, dec: 12,
+};
+
+function parseCsvRows(csv: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+  const input = csv.startsWith("\uFEFF") ? csv.slice(1) : csv;
+  for (let index = 0; index < input.length; index += 1) {
+    const character = input[index]!;
+    if (quoted) {
+      if (character === "\"") {
+        if (input[index + 1] === "\"") {
+          field += "\"";
+          index += 1;
+        } else {
+          quoted = false;
+        }
+      } else {
+        field += character;
+      }
+      continue;
+    }
+    if (character === "\"") {
+      quoted = true;
+    } else if (character === ",") {
+      row.push(field);
+      field = "";
+    } else if (character === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+    } else if (character !== "\r") {
+      field += character;
+    }
+  }
+  if (field || row.length) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
+}
+
+function divisionEpoch(year: number, month: number, day: number, hour: number, minute: number, second: number): number | undefined {
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) return undefined;
+  const local = Date.UTC(year, month - 1, day, hour, minute, second);
+  const check = new Date(local);
+  if (check.getUTCFullYear() !== year || check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day) return undefined;
+  // The log labels its times as EST; convert them to UTC for Discord timestamps.
+  return local + 5 * 60 * 60 * 1000;
+}
+
+function hour24(hour: number, meridiem: string | undefined): number {
+  if (!meridiem) return hour;
+  if (hour === 12) return meridiem === "AM" ? 0 : 12;
+  return meridiem === "PM" ? hour + 12 : hour;
+}
+
+export function parseDivisionTimestamp(value: string): number | undefined {
+  const text = value.trim().replace(/\s+/g, " ");
+  if (!text) return undefined;
+  let match = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (match) return divisionEpoch(Number(match[1]), Number(match[2]), Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6] ?? 0));
+  match = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AP]M)?$/i);
+  if (match) return divisionEpoch(Number(match[3]), Number(match[1]), Number(match[2]), hour24(Number(match[4]), match[7]?.toUpperCase()), Number(match[5]), Number(match[6] ?? 0));
+  match = text.match(/^(?:[A-Za-z]+,?\s*)?([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})\s+at\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AP]M)?$/i);
+  if (match) {
+    const month = DIVISION_MONTHS[match[1].toLowerCase()];
+    if (month) return divisionEpoch(Number(match[3]), month, Number(match[2]), hour24(Number(match[4]), match[7]?.toUpperCase()), Number(match[5]), Number(match[6] ?? 0));
+  }
+  match = text.match(/^(?:[A-Za-z]+,?\s*)?(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})\s+at\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AP]M)?$/i);
+  if (match) {
+    const month = DIVISION_MONTHS[match[2].toLowerCase()];
+    if (month) return divisionEpoch(Number(match[3]), month, Number(match[1]), hour24(Number(match[4]), match[7]?.toUpperCase()), Number(match[5]), Number(match[6] ?? 0));
+  }
+  return undefined;
+}
+
+function normalizeSheetUserId(value: string): string {
+  return value.trim().replace(/^'/, "").replace(/\.0+$/, "");
+}
+
+export function parseDivisionHistoryCsv(csv: string, division: string, code: string, userId?: string): DivisionHistoryRecord[] {
+  const rows = parseCsvRows(csv);
+  if (!rows.some((row) => String(row[7] ?? "").trim().toLowerCase() === "joined/left")) {
+    throw new Error("Unexpected division history sheet format.");
+  }
+  const wantedCode = code.toLowerCase();
+  const records: DivisionHistoryRecord[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const rowUserId = normalizeSheetUserId(String(row[2] ?? ""));
+    if (!rowUserId || (userId && rowUserId !== userId)) continue;
+    const label = String(row[7] ?? "").trim();
+    const match = label.match(/^(joined|left)\s+(.+)$/i);
+    if (!match || match[2].trim().toLowerCase() !== wantedCode) continue;
+    const at = parseDivisionTimestamp(String(row[6] ?? ""));
+    if (at === undefined) continue;
+    const action = match[1].toLowerCase() === "joined" ? "join" : "leave";
+    const key = `${rowUserId}:${action}:${at}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    records.push({ userId: rowUserId, division, action, at });
+  }
+  return records.sort((left, right) => left.at - right.at);
+}
+
+export function buildDivisionStints(records: DivisionHistoryRecord[]): DivisionStint[] {
+  const byDivision = new Map<string, DivisionHistoryRecord[]>();
+  for (const record of records) {
+    const existing = byDivision.get(record.division);
+    if (existing) existing.push(record);
+    else byDivision.set(record.division, [record]);
+  }
+  const stints: DivisionStint[] = [];
+  for (const [division, divisionRecords] of byDivision) {
+    divisionRecords.sort((left, right) => left.at - right.at);
+    let joined: Date | undefined;
+    for (const record of divisionRecords) {
+      if (record.action === "join") {
+        // A second join without a leave means the previous stint's end is unknown.
+        if (joined) stints.push({ division, joined, ongoing: false });
+        joined = new Date(record.at);
+      } else if (joined) {
+        stints.push({ division, joined, left: new Date(record.at), ongoing: false });
+        joined = undefined;
+      } else {
+        stints.push({ division, left: new Date(record.at), ongoing: false });
+      }
+    }
+    if (joined) stints.push({ division, joined, ongoing: true });
+  }
+  return stints;
+}
+
+function formatDivisionDuration(start: Date, end: Date | undefined, now: number): string {
+  const days = Math.max(0, Math.floor(((end?.getTime() ?? now) - start.getTime()) / 86_400_000));
+  if (days < 1) return "less than a day";
+  return `${days.toLocaleString("en-US")} ${days === 1 ? "day" : "days"}`;
+}
+
+export function formatDivisionHistory(stints: DivisionStint[], now = Date.now()): string {
+  if (!stints.length) return NONE;
+  const latest = (stint: DivisionStint): number => Math.max(stint.joined?.getTime() ?? 0, stint.left?.getTime() ?? 0);
+  const divisions = [...new Set(stints.map((stint) => stint.division))].sort((left, right) => {
+    const leftLatest = Math.max(...stints.filter((stint) => stint.division === left).map(latest));
+    const rightLatest = Math.max(...stints.filter((stint) => stint.division === right).map(latest));
+    return rightLatest - leftLatest;
+  });
+  return divisions.flatMap((division) => stints
+    .filter((stint) => stint.division === division)
+    .sort((left, right) => (left.joined?.getTime() ?? left.left?.getTime() ?? 0) - (right.joined?.getTime() ?? right.left?.getTime() ?? 0))
+    .map((stint) => {
+      const joined = stint.joined ? `Joined ${discordTimestamp(stint.joined, "D")}` : "Join date unknown";
+      const left = stint.left
+        ? `left ${discordTimestamp(stint.left, "D")}`
+        : stint.ongoing ? "present" : "leave date unknown";
+      const duration = stint.joined && (stint.left || stint.ongoing)
+        ? `${formatDivisionDuration(stint.joined, stint.left, now)}${stint.ongoing ? " so far" : ""}`
+        : "duration unknown";
+      return `**${division}** — ${joined}, ${left} (${duration})`;
+    })).join("\n");
+}
+
+async function fetchDivisionHistory(userId: string, signal?: AbortSignal): Promise<{ stints: DivisionStint[]; unavailable: boolean }> {
+  try {
+    const index = await cachedRoblox<Record<string, DivisionHistoryRecord[]>>(
+      "division_history_index",
+      DIVISION_HISTORY_CACHE_SECONDS,
+      async () => {
+        const records = await Promise.all(DIVISION_HISTORY_TABS.map(async (entry: DivisionHistoryTab) => {
+          const url = `https://docs.google.com/spreadsheets/d/${DIVISION_HISTORY_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(entry.tab)}`;
+          const response = await requestJson(url, { headers: { Accept: "text/csv" }, signal });
+          if (!response.ok) throw new BotError(`Division history could not be loaded (HTTP ${response.status}).`);
+          return parseDivisionHistoryCsv(await response.text(), entry.division, entry.code);
+        }));
+        const index: Record<string, DivisionHistoryRecord[]> = {};
+        for (const record of records.flat()) {
+          (index[record.userId] ??= []).push(record);
+        }
+        return index;
+      },
+      signal,
+    );
+    return { stints: buildDivisionStints(index[userId] ?? []), unavailable: false };
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    log("Division history lookup failed", error);
+    return { stints: [], unavailable: true };
+  }
+}
+
 async function backgroundCheck(
   username: string,
   signal: AbortSignal = new AbortController().signal,
@@ -1586,8 +1814,9 @@ async function backgroundCheck(
   discordId?: string,
 ): Promise<{ embeds: EmbedBuilder[]; image?: AttachmentBuilder; mentions: string[]; user: { id: string; name: string } }> {
   const user = resolvedUser ?? await resolveUser(username, signal);
-  const [groups, details, history, friends, blacklistCards, secretCards, xtracker, robloxWatcher, exploitWatcher, avatarSignals, gameSignals, inventorySignals, avatar, discordUser] = await Promise.all([
+  const [groups, details, history, friends, divisionHistory, blacklistCards, secretCards, xtracker, robloxWatcher, exploitWatcher, avatarSignals, gameSignals, inventorySignals, avatar, discordUser] = await Promise.all([
     fetchGroups(user.id, signal), fetchProfileDetails(user.id, signal), fetchUsernameHistory(user.id, signal), fetchFriendCounts(user.id, signal),
+    fetchDivisionHistory(user.id, signal),
     fetchTrelloCards(BLACKLIST_BOARD, user.name, signal), fetchTrelloCards(SECRET_SERVICE_BOARD, user.name, signal), fetchXtracker(user.id, signal),
     fetchRobloxWatcher(user.id, signal),
     fetchExploitWatcher(user.id, signal),
@@ -1760,6 +1989,9 @@ async function backgroundCheck(
     `**Discord User:** ${discordRisk ? `${discordRisk.score}% — ${discordRisk.band}` : "Unknown"}`,
     `**Combined:** ${combinedRisk}% — ${formatRiskBand(combinedRisk)}`,
   ].join("\n");
+  const divisionHistorySection = divisionHistory.unavailable
+    ? "Division history could not be loaded from the public sheet."
+    : formatDivisionHistory(divisionHistory.stints);
   // Everything lives in the description so the section titles can use Markdown
   // headers; Discord does not render headers inside embed field values.
   const sections = [
@@ -1767,6 +1999,7 @@ async function backgroundCheck(
     discordAccountSection,
     `## Alt Risk\n${altRiskSection}${aiNote ? `\n**Roblox AI Note:** ${aiNote.slice(0, 500)}` : ""}`,
     `## Ranks & Division\n${formatGroups(groups)}`,
+    `## Division History\n${divisionHistorySection}`,
     `## Punishment Record\n${punishmentRecord}\n\n${watcherSections}`,
     ...(!image ? [`## Badge Chart\n${badgeChartSection}`] : []),
   ];

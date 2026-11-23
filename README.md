@@ -38,17 +38,23 @@ requires both a Discord user ID and a Roblox username:
 `/background check username:<Roblox username> discord:<id>`. The Discord ID is
 used only for this report and is never saved by the bot. The report starts
 with the Roblox Account section with its user ID, creation date, account,
-community and inventory figures, followed by a Discord Account section with
+friend and inventory figures, followed by a Discord Account section with
 the mention above the username, display name, ID and Hammer Time creation
 date. The Roblox headshot is the embed thumbnail; the report no longer shows a
 Discord headshot or a `Discord: <username>` line at the top. Alt Risk, ranks,
-the punishment record (blacklist, Secret Service and [x]Tracker), Exploit
-Watcher's injection history, and the badge chart follow below. Alt Risk shows the Roblox account
-score, the Discord account score based on its age, and a combined score. Every section is separated by a full-width divider line and titled as a
-Markdown header so it renders larger like the account name; the content sits
+Division History, the punishment record (blacklist, Secret Service and
+[x]Tracker), Exploit Watcher's injection history, and the badge chart follow
+below. Alt Risk shows the Roblox account
+score, the Discord account score based on its age, and a combined score.
+Division History reads the public CBRN divisional rank change time log and
+lists each logged stint for the six divisions with join and leave dates as
+Discord timestamps and the time spent there; an ongoing stint counts to the
+current time. Every section is separated by a full-width divider line and
+titled as a Markdown header so it renders larger like the account name; the content sits
 in the embed description, and long results continue into a second embed. Every
 embed in a multi-embed report keeps the same section order and formatting. The
-account, friend and inventory figures share one Roblox Account section. The punishment record groups
+account, friend and inventory figures share one Roblox Account section. The
+punishment record groups
 Blacklist Records, Secret Service Records and [x]Tracker Records, and the small
 Roblox Watcher and Exploit Watcher labels show `None` when they have nothing
 to report.

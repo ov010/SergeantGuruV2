@@ -68,6 +68,9 @@ const {
   matchesInteractionLog,
   paginateEmbed,
   runWithInteractionId,
+  parseDivisionHistoryCsv,
+  buildDivisionStints,
+  formatDivisionHistory,
 } = await import("../dist/bot.mjs");
 const { assessAltRisk, parseAltAssessment } = await import("../dist/bot-alt-ai.mjs");
 
@@ -846,6 +849,47 @@ test("groups embeds omit the invalid empty description", () => {
     "None",
     "only the tracked CBRN groups are listed",
   );
+});
+
+test("division history pairs joins and leaves with Hammer Time stamps", () => {
+  const csv = [
+    "Username,DisplayName,UserId,Role,RankId,ProfileLink,Timestamp (EST),Joined/Left",
+    '"tiziiher","tiziiher","8761918674","Enlistee","160","https://www.roblox.com/users/8761918674/profile","2026-10-21 13:03:27","Joined Army"',
+    '"tiziiher","Tizi, Jr.","8761918674","9th Infantry Regiment","180","https://www.roblox.com/users/8761918674/profile","2026-10-22 17:03:14","Rank Changed in Army"',
+    '"tiziiher","tiziiher","8761918674","9th Infantry Regiment","180","https://www.roblox.com/users/8761918674/profile","2026-10-28 15:03:21","Left Army"',
+    '"tiziiher","tiziiher","8761918674","Enlistee","160","https://www.roblox.com/users/8761918674/profile","2026-11-13 23:03:17","Joined Army"',
+    '"someone","Someone","123","Enlistee","160","https://www.roblox.com/users/123/profile","2026-10-22 13:03:27","Joined Army"',
+  ].join("\n");
+  const records = parseDivisionHistoryCsv(csv, "Army", "Army", "8761918674");
+  assert.equal(records.length, 3);
+  assert.deepEqual(records.map((record) => record.action), ["join", "leave", "join"]);
+  const text = formatDivisionHistory(buildDivisionStints(records), Date.UTC(2026, 10, 23, 12));
+  assert.match(text, /^\*\*Army\*\* — Joined <t:\d+:D>, left <t:\d+:D> \(7 days\)$/m);
+  assert.match(text, /\*\*Army\*\* — Joined <t:\d+:D>, present \(9 days so far\)$/m);
+  assert.doesNotMatch(text, /Rank Changed|someone|Tizi/);
+});
+
+test("division history parses both sheet timestamp layouts in EST", () => {
+  const csv = [
+    "Username,DisplayName,UserId,Role,RankId,ProfileLink,Timestamp (EST),Joined/Left",
+    '"x","x","123","Placement","160","https://www.roblox.com/users/123/profile","Thursday, July 11, 2024 at 9:34:00 PM","Joined SF"',
+    '"x","x","123","Placement","160","https://www.roblox.com/users/123/profile","Friday 12 July 2024 at 01:15:08","Left SF"',
+  ].join("\n");
+  const records = parseDivisionHistoryCsv(csv, "Special Forces", "SF", "123");
+  assert.deepEqual(records.map((record) => record.at), [Date.UTC(2024, 6, 12, 2, 34), Date.UTC(2024, 6, 12, 6, 15, 8)]);
+  assert.match(formatDivisionHistory(buildDivisionStints(records), Date.UTC(2024, 6, 12, 12)), /less than a day/);
+});
+
+test("division history marks missing events and empty histories", () => {
+  const csv = [
+    "Username,DisplayName,UserId,Role,RankId,ProfileLink,Timestamp (EST),Joined/Left",
+    '"x","x","123","Inductee","5","https://www.roblox.com/users/123/profile","2026-01-01 12:00:00","Left Army"',
+  ].join("\n");
+  const stints = buildDivisionStints(parseDivisionHistoryCsv(csv, "Army", "Army", "123"));
+  assert.equal(stints.length, 1);
+  assert.equal(stints[0].joined, undefined);
+  assert.match(formatDivisionHistory(stints, Date.UTC(2026, 0, 2)), /Join date unknown, left <t:\d+:D> \(duration unknown\)/);
+  assert.equal(formatDivisionHistory([]), "None");
 });
 
 test("renders badge chart text at a higher resolution", async () => {
