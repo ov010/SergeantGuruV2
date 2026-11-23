@@ -81,6 +81,17 @@ Invisible and is saved across restarts.
 Authorization, daily usage, and settings remain in
 `api-server/bot/data/authorizations.sqlite3`.
 
+**CyberGuard Helper password delivery.** The CyberGuard Helper website creates
+a member's default password when the admin adds them. A member who has not
+changed it yet enters their Roblox username and Discord ID on the site's login
+page, the site queues the delivery, and SergeantGuruV2 DMs the default password
+to that Discord account. The bot checks the queue every 15 seconds. Set
+`CYBERGUARD_BASE_URL` (for example `https://cyberguard.example.com`) and
+`CYBERGUARD_INTEGRATION_TOKEN` in `.env`, and set the same token on the Worker
+as the `CYBERGUARD_INTEGRATION_TOKEN` secret (`npx wrangler secret put
+CYBERGUARD_INTEGRATION_TOKEN`). Without both values the bot is unchanged and
+only this delivery is off.
+
 Any embed with more than fifteen lines of information is split across pages with
 Previous and Next buttons; `/info`, `/changelog`, and `/search` paginate.
 `/api` always sends all integration statuses in one embed. Any member can use

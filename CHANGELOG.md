@@ -1,5 +1,8 @@
 # Change Log
 
+## 2.0.62 - 2026-11-23
+- Added CyberGuard Helper password delivery: when a member asks for their default password with their Roblox username and Discord ID on the website, the bot picks it up from the site's queue and DMs it to them. Configured with `CYBERGUARD_BASE_URL` and `CYBERGUARD_INTEGRATION_TOKEN`; without both values the bot runs exactly as before.
+
 ## 2.0.61 - 2026-11-23
 - Added a Division History section to `/background check` that reads the public CBRN division log and lists each division stint with join and leave dates as Discord timestamps and its duration; ongoing stints count to the current time.
 

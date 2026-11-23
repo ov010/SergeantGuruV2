@@ -71,8 +71,34 @@ const {
   parseDivisionHistoryCsv,
   buildDivisionStints,
   formatDivisionHistory,
+  credentialDmText,
+  parseCredentialDeliveries,
 } = await import("../dist/bot.mjs");
 const { assessAltRisk, parseAltAssessment } = await import("../dist/bot-alt-ai.mjs");
+
+test("CyberGuard Helper deliveries are validated and formatted", () => {
+  const deliveries = parseCredentialDeliveries({
+    deliveries: [
+      { id: 7, username: "Trainee_1", discordId: "987654321098765432", password: "Abcd-efgh-2345" },
+      { id: 0, username: "Bad", discordId: "987654321098765432", password: "Abcd-efgh-2345" },
+      { id: 8, username: "Bad", discordId: "not-an-id", password: "Abcd-efgh-2345" },
+      { id: 9, username: "Bad", discordId: "987654321098765432", password: "short" },
+    ],
+  });
+  assert.equal(deliveries.length, 1);
+  assert.deepEqual(deliveries[0], {
+    id: 7,
+    username: "Trainee_1",
+    discordId: "987654321098765432",
+    password: "Abcd-efgh-2345",
+  });
+  const text = credentialDmText(deliveries[0], "https://cg.example.com");
+  assert.match(text, /Trainee_1/);
+  assert.match(text, /Abcd-efgh-2345/);
+  assert.match(text, /https:\/\/cg\.example\.com/);
+  assert.equal(parseCredentialDeliveries(null).length, 0);
+  assert.equal(parseCredentialDeliveries({ deliveries: "nope" }).length, 0);
+});
 
 test("registers only the retained commands", () => {
   const registered = commands.map((command) => command.toJSON());

@@ -35,11 +35,13 @@ import {
 } from "discord.js";
 import { discordTimestamp, fetchRobloxAvatar, formatChartCount, makeBadgeChart } from "./badge-chart";
 import { assessAltRisk } from "./bot-alt-ai";
+import { startCredentialDelivery } from "./cyberguard-credentials";
 import packageJson from "../../package.json";
 
 export { formatChartCount, makeBadgeChart };
 export const BOT_VERSION: string = packageJson.version;
 export { parseAltAssessment } from "./bot-alt-ai";
+export { credentialDmText, parseCredentialDeliveries } from "./cyberguard-credentials";
 
 const OWNER_ID = "1186370477606838375";
 const ROBLOX_CLOUD = "https://apis.roblox.com/cloud/v2";
@@ -88,6 +90,12 @@ const altAiBaseUrl = process.env["OLLAMA_BASE_URL"]?.trim() || "http://127.0.0.1
 const altAiModel = process.env["OLLAMA_MODEL"]?.trim() || "qwen2.5:1.5b";
 const ALT_AI_RETRY_MS = 5 * 60_000;
 let altAiRetryAt = 0;
+
+// Optional bridge to CyberGuard Helper: the bot DMs the default password that
+// the website queues when a member asks for theirs.
+const cyberGuardBaseUrl = (process.env["CYBERGUARD_BASE_URL"]?.trim() ?? "").replace(/\/+$/, "");
+const cyberGuardToken = process.env["CYBERGUARD_INTEGRATION_TOKEN"]?.trim() ?? "";
+let stopCredentialDelivery: (() => void) | undefined;
 
 const BACKGROUND_CHECK_LOG_GUILD_ID = "1566264464062414881";
 const BACKGROUND_CHECK_LOG_CHANNEL_ID = "1566264530361655387";
@@ -3441,6 +3449,17 @@ client.once("clientReady", async () => {
   } catch (error) {
     log("Unable to synchronize slash commands", error);
   }
+
+  if (cyberGuardBaseUrl && cyberGuardToken) {
+    stopCredentialDelivery = startCredentialDelivery(client, {
+      baseUrl: cyberGuardBaseUrl,
+      token: cyberGuardToken,
+      log,
+    });
+    log("Watching CyberGuard Helper for password deliveries");
+  } else {
+    log("CYBERGUARD_BASE_URL or CYBERGUARD_INTEGRATION_TOKEN is missing; password delivery is off");
+  }
 });
 
 let shuttingDown = false;
@@ -3448,6 +3467,7 @@ async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   log(`Received ${signal}; shutting down`);
+  stopCredentialDelivery?.();
   client.destroy();
   db.close();
 }
