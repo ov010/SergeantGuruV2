@@ -71,7 +71,7 @@ const {
   parseDivisionHistoryCsv,
   buildDivisionStints,
   formatDivisionHistory,
-  credentialDmText,
+  credentialDmEmbed,
   parseCredentialDeliveries,
 } = await import("../dist/bot.mjs");
 const { assessAltRisk, parseAltAssessment } = await import("../dist/bot-alt-ai.mjs");
@@ -92,10 +92,16 @@ test("CyberGuard Helper deliveries are validated and formatted", () => {
     discordId: "987654321098765432",
     password: "Abcd-efgh-2345",
   });
-  const text = credentialDmText(deliveries[0], "https://cg.example.com");
-  assert.match(text, /Trainee_1/);
-  assert.match(text, /Abcd-efgh-2345/);
-  assert.match(text, /https:\/\/cg\.example\.com/);
+  const embed = credentialDmEmbed(deliveries[0], "https://cg.example.com").toJSON();
+  const description = embed.description ?? "";
+  assert.match(embed.title ?? "", /CyberGuard Helper default password/);
+  assert.match(description, /Trainee_1/);
+  // The password is a spoiler and never appears outside it.
+  assert.match(description, /\|\|Abcd-efgh-2345\|\|/);
+  assert.equal((description.match(/Abcd-efgh-2345/g) ?? []).length, 1);
+  const fieldText = (embed.fields ?? []).map((field) => `${field.name} ${field.value}`).join("\n");
+  assert.match(fieldText, /https:\/\/cg\.example\.com/);
+  assert.equal(fieldText.includes("Abcd-efgh-2345"), false);
   assert.equal(parseCredentialDeliveries(null).length, 0);
   assert.equal(parseCredentialDeliveries({ deliveries: "nope" }).length, 0);
 });

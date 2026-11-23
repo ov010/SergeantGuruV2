@@ -41,7 +41,7 @@ import packageJson from "../../package.json";
 export { formatChartCount, makeBadgeChart };
 export const BOT_VERSION: string = packageJson.version;
 export { parseAltAssessment } from "./bot-alt-ai";
-export { credentialDmText, parseCredentialDeliveries } from "./cyberguard-credentials";
+export { credentialDmEmbed, parseCredentialDeliveries } from "./cyberguard-credentials";
 
 const OWNER_ID = "1186370477606838375";
 const ROBLOX_CLOUD = "https://apis.roblox.com/cloud/v2";

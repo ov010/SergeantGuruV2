@@ -1,4 +1,4 @@
-import type { Client } from "discord.js";
+import { EmbedBuilder, type Client } from "discord.js";
 
 export interface CredentialDelivery {
   id: number;
@@ -41,21 +41,31 @@ export function parseCredentialDeliveries(payload: unknown): CredentialDelivery[
   return deliveries;
 }
 
-/** The DM a member receives with their CyberGuard Helper default password. */
-export function credentialDmText(delivery: CredentialDelivery, siteUrl = ""): string {
-  const lines = [
-    "**CyberGuard Helper password**",
-    "",
-    `Roblox username: \`${delivery.username}\``,
-    `Default password: \`${delivery.password}\``,
-    "",
-    siteUrl
-      ? `Sign in at <${siteUrl}>, then change the password under **Create a password**.`
-      : "Sign in, then change the password under **Create a password**.",
-    "",
-    "If you did not ask for this, tell Guru_Guru1X.",
-  ];
-  return lines.join("\n");
+const CREDENTIAL_COLOR = 0x2f81f7;
+
+/**
+ * The DM a member receives with their CyberGuard Helper default password.
+ * The password itself is a Discord spoiler, so it stays hidden until tapped.
+ */
+export function credentialDmEmbed(delivery: CredentialDelivery, siteUrl = ""): EmbedBuilder {
+  return new EmbedBuilder()
+    .setColor(CREDENTIAL_COLOR)
+    .setTitle("CyberGuard Helper default password")
+    .setDescription(
+      [
+        `**Roblox username**\n\`${delivery.username}\``,
+        `**Default password**\n||${delivery.password}||`,
+        "Tap the blacked-out password to reveal it.",
+      ].join("\n\n"),
+    )
+    .addFields({
+      name: "Next step",
+      value: siteUrl
+        ? `Sign in at ${siteUrl}. The site asks you to choose your own password before the dashboard opens.`
+        : "Sign in to CyberGuard Helper. The site asks you to choose your own password before the dashboard opens.",
+    })
+    .setFooter({ text: "If you did not ask for this, tell Guru_Guru1X." })
+    .setTimestamp();
 }
 
 /**
@@ -119,7 +129,7 @@ export function startCredentialDelivery(
         try {
           const user = await client.users.fetch(delivery.discordId);
           await user.send({
-            content: credentialDmText(delivery, siteOrigin),
+            embeds: [credentialDmEmbed(delivery, siteOrigin)],
             allowedMentions: { parse: [] },
           });
           results.push({ id: delivery.id, ok: true });

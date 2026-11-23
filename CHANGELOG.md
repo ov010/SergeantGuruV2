@@ -1,5 +1,8 @@
 # Change Log
 
+## 2.0.63 - 2026-11-23
+- The CyberGuard Helper default-password DM is now an embed, and the password itself is sent as a Discord spoiler (`||…||`) so it stays hidden until the member taps it. The embed still names the Roblox username, links the site and points at the password change the site now forces.
+
 ## 2.0.62 - 2026-11-23
 - Added CyberGuard Helper password delivery: when a member asks for their default password with their Roblox username and Discord ID on the website, the bot picks it up from the site's queue and DMs it to them. Configured with `CYBERGUARD_BASE_URL` and `CYBERGUARD_INTEGRATION_TOKEN`; without both values the bot runs exactly as before.
 
