@@ -1,5 +1,7 @@
 import { EmbedBuilder, type Client } from "discord.js";
 
+import { brandFooter } from "./lib/brand";
+
 export interface CredentialDelivery {
   id: number;
   username: string;
@@ -43,29 +45,61 @@ export function parseCredentialDeliveries(payload: unknown): CredentialDelivery[
 
 const CREDENTIAL_COLOR = 0x2f81f7;
 
+export interface CredentialEmbedOptions {
+  title: string;
+  username: string;
+  password: string;
+  /** Snowflake for the footer's ID, the same shape as every other bot embed. */
+  id?: string | null;
+  siteUrl?: string;
+  nextStep?: string;
+}
+
 /**
- * The DM a member receives with their CyberGuard Helper default password.
- * The password itself is a Discord spoiler, so it stays hidden until tapped.
+ * One embed shape for every CyberGuard Helper password the bot hands out, so a
+ * delivered DM and a /reset password reply read the same and carry the shared
+ * "SergeantGuruV2 | 14:32Z | ID: …" footer. The password itself is a Discord
+ * spoiler: it never appears outside ||…||.
  */
-export function credentialDmEmbed(delivery: CredentialDelivery, siteUrl = ""): EmbedBuilder {
+export function credentialEmbed({
+  title,
+  username,
+  password,
+  id,
+  siteUrl = "",
+  nextStep,
+}: CredentialEmbedOptions): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(CREDENTIAL_COLOR)
-    .setTitle("CyberGuard Helper default password")
+    .setTitle(title)
     .setDescription(
       [
-        `**Roblox username**\n\`${delivery.username}\``,
-        `**Default password**\n||${delivery.password}||`,
+        `**Roblox username**\n\`${username}\``,
+        `**Default password**\n||${password}||`,
         "Tap the blacked-out password to reveal it.",
       ].join("\n\n"),
     )
     .addFields({
       name: "Next step",
-      value: siteUrl
-        ? `Sign in at ${siteUrl}. The site asks you to choose your own password before the dashboard opens.`
-        : "Sign in to CyberGuard Helper. The site asks you to choose your own password before the dashboard opens.",
+      value:
+        nextStep ??
+        (siteUrl
+          ? `Sign in at ${siteUrl}. The site asks you to choose your own password before the dashboard opens.`
+          : "Sign in to CyberGuard Helper. The site asks you to choose your own password before the dashboard opens."),
     })
-    .setFooter({ text: "If you did not ask for this, tell Guru_Guru1X." })
+    .setFooter({ text: brandFooter(id) })
     .setTimestamp();
+}
+
+/** The DM a member receives with their CyberGuard Helper default password. */
+export function credentialDmEmbed(delivery: CredentialDelivery, siteUrl = ""): EmbedBuilder {
+  return credentialEmbed({
+    title: "CyberGuard Helper default password",
+    username: delivery.username,
+    password: delivery.password,
+    id: delivery.discordId,
+    siteUrl,
+  });
 }
 
 /**

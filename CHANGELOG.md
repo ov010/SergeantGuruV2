@@ -1,5 +1,9 @@
 # Change Log
 
+## 2.0.64 - 2026-11-24
+- The CyberGuard Helper password DM now carries the same embed footer as every other reply (`SergeantGuruV2 | 09:16Z | ID: …`), so it reads like the rest of the bot.
+- Added `/reset password`: run it in SergeantGuruV2's DMs to reset your own CyberGuard Helper password to a new default one, delivered as a spoiler embed. The site then forces you to pick your own, and every older session is signed out. It only works for an account with your Discord ID linked.
+
 ## 2.0.63 - 2026-11-23
 - The CyberGuard Helper default-password DM is now an embed, and the password itself is sent as a Discord spoiler (`||…||`) so it stays hidden until the member taps it. The embed still names the Roblox username, links the site and points at the password change the site now forces.
 

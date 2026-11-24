@@ -35,7 +35,8 @@ import {
 } from "discord.js";
 import { discordTimestamp, fetchRobloxAvatar, formatChartCount, makeBadgeChart } from "./badge-chart";
 import { assessAltRisk } from "./bot-alt-ai";
-import { startCredentialDelivery } from "./cyberguard-credentials";
+import { credentialEmbed, startCredentialDelivery } from "./cyberguard-credentials";
+import { brandFooter } from "./lib/brand";
 import packageJson from "../../package.json";
 
 export { formatChartCount, makeBadgeChart };
@@ -149,6 +150,8 @@ const EMBED_ROLES: Record<string, [string, string]> = {
   "Ping": ["embed_color_ping", "Teal"],
   "Change Log": ["embed_color_changelog", "Blue"],
   "Change Log Unavailable": ["embed_color_changelog_error", "Orange"],
+  "Password Reset": ["embed_color_password_reset", "Teal"],
+  "Password Reset Unavailable": ["embed_color_password_reset_error", "Orange"],
   "API Status": ["embed_color_api_status", "Blue"],
   "Bot Status": ["embed_color_bot_status", "Teal"],
   "Bot Status Updated": ["embed_color_bot_status_result", "Green"],
@@ -261,8 +264,7 @@ function embedColor(role: string): number {
 }
 
 function footer(): string {
-  const interactionId = interactionContext.getStore();
-  return `SergeantGuruV2 | ${new Date().toISOString().slice(11, 16)}Z | ID: ${interactionId ?? "N/A"}`;
+  return brandFooter(interactionContext.getStore());
 }
 
 export function runWithInteractionId<T>(interactionId: string, callback: () => T): T {
@@ -2768,6 +2770,12 @@ export const commands = [
       .setRequired(true)),
   new SlashCommandBuilder().setName("ping").setDescription("Check the bot's Discord latency and uptime."),
   new SlashCommandBuilder().setName("admin").setDescription("Open the bot owner admin panel."),
+  new SlashCommandBuilder()
+    .setName("reset")
+    .setDescription("Reset your own CyberGuard Helper password.")
+    .addSubcommand((sub) => sub
+      .setName("password")
+      .setDescription("Reset your CyberGuard Helper password to a new default one SergeantGuru DMs you here.")),
 ].map(configureCommand);
 
 async function handleCommand(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -2822,6 +2830,7 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
   }
   if (name === "ping") return sendPing(interaction);
   if (name === "admin") return sendAdminPanel(interaction);
+  if (name === "reset" && interaction.options.getSubcommand() === "password") return sendPasswordReset(interaction);
   if (name === "info") {
     const stats = db.prepare("SELECT (SELECT COUNT(*) FROM authorized_users) AS users, (SELECT COUNT(*) FROM authorized_roles) AS roles").get() as JsonObject;
     let robloxOnline = false;
@@ -3133,6 +3142,69 @@ async function sendPing(interaction: ChatInputCommandInteraction): Promise<void>
       roundtripMs,
       uptimeSeconds: (Date.now() - startTime) / 1000,
     })],
+  });
+}
+
+/**
+ * /reset password is self-service: the member's own Discord ID is the only
+ * account key the site is asked to reset, so nobody can reset someone else.
+ */
+async function sendPasswordReset(interaction: ChatInputCommandInteraction): Promise<void> {
+  await interaction.deferReply({ ephemeral: true });
+  const unavailable = (message: string) =>
+    interaction.editReply({
+      embeds: [makeEmbed("Password Reset Unavailable", message, "Password Reset Unavailable")],
+    });
+
+  if (!cyberGuardBaseUrl || !cyberGuardToken) {
+    await unavailable("The CyberGuard Helper password service is not configured on this bot. Tell Guru_Guru1X.");
+    return;
+  }
+
+  let response: Response;
+  try {
+    response = await requestJson(`${cyberGuardBaseUrl}/api/integration/password-reset`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${cyberGuardToken}`,
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify({ discordId: interaction.user.id }),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (error) {
+    log("CyberGuard Helper password reset request failed", error);
+    await unavailable("CyberGuard Helper could not be reached. Try again in a moment.");
+    return;
+  }
+
+  const body = (await response.json().catch(() => null)) as {
+    username?: string;
+    password?: string;
+    error?: string;
+  } | null;
+  if (!response.ok || !body?.password) {
+    await unavailable(
+      response.status === 404
+        ? "No CyberGuard Helper account is linked to your Discord ID yet. Tell Guru_Guru1X so they can add it."
+        : body?.error ?? "CyberGuard Helper could not reset your password. Try again later.",
+    );
+    return;
+  }
+
+  await interaction.editReply({
+    embeds: [
+      credentialEmbed({
+        title: "CyberGuard Helper password reset",
+        username: body.username ?? interaction.user.username,
+        password: body.password,
+        id: interaction.id,
+        siteUrl: cyberGuardBaseUrl,
+        nextStep:
+          "Sign in with this default password. The site immediately asks you to choose your own, and any older sessions are already signed out.",
+      }),
+    ],
   });
 }
 

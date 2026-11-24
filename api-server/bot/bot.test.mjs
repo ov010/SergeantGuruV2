@@ -102,6 +102,8 @@ test("CyberGuard Helper deliveries are validated and formatted", () => {
   const fieldText = (embed.fields ?? []).map((field) => `${field.name} ${field.value}`).join("\n");
   assert.match(fieldText, /https:\/\/cg\.example\.com/);
   assert.equal(fieldText.includes("Abcd-efgh-2345"), false);
+  // The DM carries the same footer line as every other SergeantGuruV2 embed.
+  assert.match(embed.footer?.text ?? "", /^SergeantGuruV2 \| \d{2}:\d{2}Z \| ID: 987654321098765432$/);
   assert.equal(parseCredentialDeliveries(null).length, 0);
   assert.equal(parseCredentialDeliveries({ deliveries: "nope" }).length, 0);
 });
@@ -110,12 +112,13 @@ test("registers only the retained commands", () => {
   const registered = commands.map((command) => command.toJSON());
   assert.deepEqual(
     registered.map(({ name }) => name),
-    ["background", "badge", "api", "groups", "profile", "info", "changelog", "search", "ping", "admin"],
+    ["background", "badge", "api", "groups", "profile", "info", "changelog", "search", "ping", "admin", "reset"],
   );
   assert.equal(registered.some(({ name }) => name === "data"), false, "/data is removed");
   assert.equal(registered.some(({ name }) => name === "records"), false, "/records is removed");
   assert.equal(registered.find(({ name }) => name === "ping").options?.length ?? 0, 0);
   assert.equal(registered.find(({ name }) => name === "admin").options?.length ?? 0, 0);
+  assert.equal(registered.find(({ name }) => name === "reset").options[0].name, "password");
   assert.equal(registered.find(({ name }) => name === "badge").options[0].name, "count");
   assert.equal(registered.find(({ name }) => name === "search").options[0].name, "query");
   assert.equal(registered.find(({ name }) => name === "changelog").options?.length ?? 0, 0);
@@ -368,9 +371,10 @@ test("/ping reports gateway latency, round trip, uptime, and version", () => {
 
 test("every command except the owner-only admin panel requires granted access", () => {
   const registered = commands.map((command) => command.toJSON().name);
+  // /reset password is self-service: every member may reset their own password.
   assert.deepEqual(
     registered.filter((name) => !ACCESS_CONTROLLED_COMMANDS.has(name)),
-    ["ping", "admin"],
+    ["ping", "admin", "reset"],
   );
   for (const name of ["background", "badge", "groups", "changelog", "info"]) {
     assert.ok(ACCESS_CONTROLLED_COMMANDS.has(name), `${name} must require access`);
@@ -701,7 +705,15 @@ test("paginates embeds without splitting related blocks", () => {
     original.fields.map(({ name, value }) => ({ name, value })),
     "no field is split across pages",
   );
-  assert.ok(pages.every((page) => page.toJSON().fields.length !== 1), "no page is created for one trailing field");
+  // A page that also carries the description is a full page, not a lone trailing
+  // field: the description plus one status already fills the target.
+  assert.ok(
+    pages.every((page) => {
+      const json = page.toJSON();
+      return Boolean(json.description) || json.fields.length !== 1;
+    }),
+    "no page is created for one trailing field",
+  );
   const lastPage = pages.at(-1).toJSON();
   assert.ok(lastPage.fields.some(({ name }) => name === "Roblox Watcher API"));
   assert.ok(lastPage.fields.some(({ name }) => name === "Exploit Watcher API"), "the last integration stays with the others");
