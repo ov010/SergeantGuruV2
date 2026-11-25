@@ -1,5 +1,10 @@
 # Change Log
 
+## 2.0.65 - 2026-11-25
+- `/background check` now renders every flagged server the Roblox Watcher and Exploit Watcher return for each linked Discord account, instead of stopping at two servers and ten evidence lines. Each server line shows its type and flags, the account's standing and roles, the date range it was seen there, and messages, slash commands, reactions, voice joins, boosts and request counters.
+- The linked-account line now shows where the link came from (Discord Profile, Bloxlink), how many flagged servers it was seen in, and its total activity score.
+- Exploit Watcher lists every injected game with its first and last injection date instead of only the first five games.
+
 ## 2.0.64 - 2026-11-24
 - The CyberGuard Helper password DM now carries the same embed footer as every other reply (`SergeantGuruV2 | 09:16Z | ID: …`), so it reads like the rest of the bot.
 - Added `/reset password`: run it in SergeantGuruV2's DMs to reset your own CyberGuard Helper password to a new default one, delivered as a spoiler embed. The site then forces you to pick your own, and every older session is signed out. It only works for an account with your Discord ID linked.

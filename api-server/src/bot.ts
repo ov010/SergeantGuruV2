@@ -1235,6 +1235,10 @@ interface WatcherAccount {
   id: string;
   sources: string[];
   flagged: boolean;
+  /** Total activity score across this account's flagged servers. */
+  score?: number;
+  /** How many flagged servers the account was seen in. */
+  serverCount?: number;
   /** Server evidence from the watcher's Discord lookup, filled in for flagged accounts. */
   reasons?: string[];
 }
@@ -1253,6 +1257,7 @@ interface WatcherAccountGroup {
 }
 
 export const WATCHER_LINKED_ACCOUNT_LIMIT = 8;
+const WATCHER_ROLE_LIMIT = 6;
 
 function watcherAccounts(payload: JsonObject): WatcherAccount[] {
   const accounts = Array.isArray(payload.discordAccounts) ? payload.discordAccounts as JsonObject[] : [];
@@ -1263,55 +1268,107 @@ function watcherAccounts(payload: JsonObject): WatcherAccount[] {
   }));
 }
 
-const WATCHER_EVIDENCE_LIMIT = 10;
-const WATCHER_REASON_GUILD_LIMIT = 2;
+function watcherDate(value: unknown): Date | undefined {
+  if (typeof value !== "string") return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function watcherDateRange(first: Date, last: Date): string {
+  return first.toDateString() === last.toDateString()
+    ? discordTimestamp(first, "d")
+    : `${discordTimestamp(first, "d")} – ${discordTimestamp(last, "d")}`;
+}
+
+function watcherActivityStats(activity: JsonObject): string[] {
+  const count = (value: unknown): number => Number(value ?? 0);
+  const stats: string[] = [];
+  const add = (value: number, singular: string, plural = `${singular}s`) => {
+    if (value > 0) stats.push(`${value.toLocaleString("en-US")} ${value === 1 ? singular : plural}`);
+  };
+  add(count(activity.messages), "message");
+  add(count(activity.slashCommands), "slash command");
+  add(count(activity.reactions), "reaction");
+  add(count(activity.vcJoins), "voice join");
+  add(count(activity.boosts), "boost");
+  add(count(activity.scriptRequests), "script request");
+  add(count(activity.bypassBotUsages), "bypass use");
+  add(count(activity.rr34Requests), "RR34 request");
+  add(count(activity.nsfwRequests), "NSFW request");
+  add(count(activity.erpInteractions), "ERP interaction");
+  return stats;
+}
+
+// One line per flagged server with everything the Discord lookup reports:
+// why the server is flagged, the user's standing and roles, when they were
+// there, and what they did. No server or activity field is dropped.
+function watcherGuildEvidence(guild: JsonObject): string {
+  const name = String(guild.name ?? "Unknown Server");
+  const types = Array.isArray(guild.guildTypes)
+    ? (guild.guildTypes as JsonObject[]).map((type) => String(type.name ?? "")).filter(Boolean)
+    : [];
+  const flags = Array.isArray(guild.guildFlags) ? guild.guildFlags.map(String).filter(Boolean) : [];
+  const roles = Array.isArray(guild.roles)
+    ? (guild.roles as JsonObject[]).map((role) => String(role.name ?? "").trim()).filter(Boolean)
+    : [];
+  const membership = (guild.membership ?? {}) as JsonObject;
+  const standing = membership.owner === true ? "owner" : membership.staff === true ? "staff" : "";
+  const joins = (Array.isArray(guild.guildJoins) ? guild.guildJoins : []).map(watcherDate).filter((date): date is Date => Boolean(date));
+  const leaves = (Array.isArray(guild.guildLeaves) ? guild.guildLeaves : []).map(watcherDate).filter((date): date is Date => Boolean(date));
+  const starts = [watcherDate(guild.estimatedJoin), watcherDate(guild.firstSeen), ...joins].filter((date): date is Date => Boolean(date));
+  const ends = [watcherDate(guild.lastSeen), watcherDate(guild.lastActivity), ...leaves].filter((date): date is Date => Boolean(date));
+  const start = starts.length ? new Date(Math.min(...starts.map((date) => date.getTime()))) : undefined;
+  const end = ends.length ? new Date(Math.max(...ends.map((date) => date.getTime()))) : undefined;
+  const stats = watcherActivityStats((guild.activity ?? {}) as JsonObject);
+  const roleText = roles.slice(0, WATCHER_ROLE_LIMIT).join(", ") + (roles.length > WATCHER_ROLE_LIMIT ? ` +${roles.length - WATCHER_ROLE_LIMIT}` : "");
+  const details = [
+    standing,
+    flags.length ? `flags: ${flags.join(", ")}` : "",
+    roles.length ? `roles: ${roleText}` : "",
+    start && end ? watcherDateRange(start, end) : start ? `since ${discordTimestamp(start, "d")}` : end ? `last seen ${discordTimestamp(end, "R")}` : "",
+    stats.join(", "),
+  ].filter(Boolean);
+  return `**${name}**${types.length ? ` (${types.join(", ")})` : ""}${details.length ? ` · ${details.join(" · ")}` : ""}`;
+}
 
 // Server evidence belongs with the watcher section it came from: the mention
-// names the account and the indented line gives the server behind the flag.
+// names the account and the indented lines give every server behind the flag.
 export function formatWatcherEvidence(accounts: WatcherAccount[]): string {
   return accounts.flatMap((account) => {
     if (!account.flagged) return [];
     const label = isDiscordUserId(account.id) ? `<@${account.id}>` : `\`${account.id}\``;
+    const meta = [
+      account.sources.length ? `linked via ${account.sources.join(", ")}` : "",
+      account.serverCount ? `${account.serverCount.toLocaleString("en-US")} server${account.serverCount === 1 ? "" : "s"}` : "",
+      account.score !== undefined ? `score ${account.score.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "",
+    ].filter(Boolean);
     const reasons = account.reasons ?? [];
-    return [`↳ ${label}`, ...(reasons.length ? reasons.map((text) => `  ${text}`) : ["  None"])];
-  }).slice(0, WATCHER_EVIDENCE_LIMIT).join("\n");
+    return [
+      `↳ ${label}${meta.length ? ` · ${meta.join(" · ")}` : ""}`,
+      ...(reasons.length ? reasons.map((text) => `  • ${text}`) : ["  None"]),
+    ];
+  }).join("\n");
 }
 
-// The Discord lookup is what explains a flag: the flagged servers the account
+// The Discord lookup is what explains a flag: every flagged server the account
 // was seen in, why each server is flagged, and the activity behind it.
 export function watcherGuildReasons(payload: JsonObject): string[] {
   const guilds = Array.isArray(payload.guilds) ? payload.guilds as JsonObject[] : [];
   if (!guilds.length) return payload.flagged === true ? ["flagged account; no server details were reported"] : [];
-  const count = (value: unknown): number => Number(value ?? 0);
-  return guilds.slice(0, WATCHER_REASON_GUILD_LIMIT).map((guild) => {
-    const name = String(guild.name ?? "Unknown Server");
-    const types = Array.isArray(guild.guildTypes)
-      ? (guild.guildTypes as JsonObject[]).map((type) => String(type.name ?? "")).filter(Boolean)
-      : [];
-    const activity = (guild.activity ?? {}) as JsonObject;
-    const stats: string[] = [];
-    const messages = count(activity.messages);
-    const reactions = count(activity.reactions);
-    const requests = count(activity.scriptRequests) + count(activity.bypassBotUsages)
-      + count(activity.rr34Requests) + count(activity.nsfwRequests) + count(activity.erpInteractions);
-    if (messages) stats.push(`${messages.toLocaleString("en-US")} message${messages === 1 ? "" : "s"}`);
-    if (reactions) stats.push(`${reactions.toLocaleString("en-US")} reaction${reactions === 1 ? "" : "s"}`);
-    if (requests) stats.push(`${requests.toLocaleString("en-US")} request${requests === 1 ? "" : "s"}`);
-    const lastSeen = typeof guild.lastSeen === "string" ? new Date(guild.lastSeen) : undefined;
-    if (lastSeen && !Number.isNaN(lastSeen.getTime())) stats.push(`last seen ${discordTimestamp(lastSeen, "R")}`);
-    return `${name}${types.length ? ` (${types.join(", ")})` : ""}${stats.length ? ` · ${stats.join(", ")}` : ""}`;
-  });
+  return guilds.map(watcherGuildEvidence);
 }
 
 interface DiscordWatcherRecord {
   flagged: boolean;
+  score?: number;
+  serverCount: number;
   reasons: string[];
 }
 
 async function fetchDiscordWatcherRecord(product: WatcherProduct, discordId: string, signal?: AbortSignal): Promise<DiscordWatcherRecord> {
   const api = product === "robloxwatcher" ? ROBLOX_WATCHER_API : EXPLOIT_WATCHER_API;
   const key = product === "robloxwatcher" ? robloxWatcherApiKey : exploitWatcherApiKey;
-  if (!key) return { flagged: false, reasons: [] };
+  if (!key) return { flagged: false, serverCount: 0, reasons: [] };
   try {
     const payload = await cachedRoblox(`${product}:discord:${discordId}`, 1800, async () => {
       const response = await requestJson(`${api}/search/${encodeURIComponent(discordId)}`, {
@@ -1323,16 +1380,18 @@ async function fetchDiscordWatcherRecord(product: WatcherProduct, discordId: str
       return await response.json() as JsonObject;
     }, signal);
     const reasons = watcherGuildReasons(payload);
-    return { flagged: payload.flagged === true || reasons.length > 0, reasons };
+    const score = Number(payload.totalScore);
+    return {
+      flagged: payload.flagged === true || reasons.length > 0,
+      score: Number.isFinite(score) ? score : undefined,
+      serverCount: Array.isArray(payload.guilds) ? payload.guilds.length : 0,
+      reasons,
+    };
   } catch (error) {
     if (signal?.aborted) throw error;
     log("Watcher Discord detail lookup failed", error);
-    return { flagged: false, reasons: [] };
+    return { flagged: false, serverCount: 0, reasons: [] };
   }
-}
-
-async function fetchWatcherGuildReasons(product: WatcherProduct, discordId: string, signal?: AbortSignal): Promise<string[]> {
-  return (await fetchDiscordWatcherRecord(product, discordId, signal)).reasons;
 }
 
 export interface DiscordAccountView {
@@ -1356,8 +1415,12 @@ export function formatDiscordAccountSection(discordId: string | undefined, accou
 async function attachWatcherReasons(groups: WatcherAccountGroup[], signal?: AbortSignal): Promise<void> {
   await Promise.all(groups.map(async (group) => {
     await Promise.all(group.accounts.filter((account) => account.flagged).map(async (account) => {
-      const reasons = await fetchWatcherGuildReasons(group.product, account.id, signal);
-      if (reasons.length) account.reasons = reasons;
+      const record = await fetchDiscordWatcherRecord(group.product, account.id, signal);
+      if (record.reasons.length) account.reasons = record.reasons;
+      if (record.serverCount) {
+        account.serverCount = record.serverCount;
+        account.score = record.score;
+      }
     }));
   }));
 }
@@ -1392,8 +1455,6 @@ async function fetchRobloxWatcher(userId: string, signal?: AbortSignal): Promise
   }
 }
 
-const EXPLOIT_WATCHER_GAME_LIMIT = 5;
-
 // A linked Discord account can be flagged even when the Roblox account itself
 // has no injections of its own, so either signal marks the lookup as flagged.
 export function formatExploitWatcher(payload: JsonObject): string {
@@ -1412,14 +1473,15 @@ export function formatExploitWatcher(payload: JsonObject): string {
         : "🔴 **Flagged** — this account appears in the injection logs";
   const blocks = [heading];
   if (games.length) {
-    const lines = games.slice(0, EXPLOIT_WATCHER_GAME_LIMIT).map((game) => {
+    const lines = games.map((game) => {
       const count = Number(game.totalInjections ?? 0);
-      const last = typeof game.lastInjection === "string" ? new Date(game.lastInjection) : undefined;
-      const when = last && !Number.isNaN(last.getTime()) ? ` (last ${last.toISOString().slice(0, 10)})` : "";
+      const first = watcherDate(game.firstInjection);
+      const last = watcherDate(game.lastInjection);
+      const when = first && last
+        ? ` (${watcherDateRange(first, last)})`
+        : last ? ` (last ${discordTimestamp(last, "d")})` : "";
       return `• ${String(game.name ?? "Unknown")} — ${count.toLocaleString("en-US")}${when}`;
     });
-    const omitted = games.length - lines.length;
-    if (omitted > 0) lines.push(`… and ${omitted} more`);
     blocks.push(`**Games injected:**\n${lines.join("\n")}`);
   }
   return blocks.join("\n");

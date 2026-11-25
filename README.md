@@ -59,9 +59,13 @@ Blacklist Records, Secret Service Records and [x]Tracker Records, and the small
 Roblox Watcher and Exploit Watcher labels show `None` when they have nothing
 to report.
 Linked accounts are rendered as mentions so they ping the linked Discord
-users. Each watcher section at the bottom lists the flagged servers behind the
-accounts it reported, why each server is flagged, and the activity seen
-there, with relative timestamps for when the account was last seen; the
+users. Each watcher section at the bottom lists every flagged server behind
+the accounts it reported, why each server is flagged, the account's standing
+and roles, the date range it was seen there, and the activity recorded there:
+messages, slash commands, reactions, voice joins, boosts and the exploit or
+NSFW request counters. The linked-account line shows the link source, its
+server count and its total activity score. Exploit Watcher's injection list
+shows every injected game with its first and last injection date; the
 Exploit Watcher records stay at the bottom of the embed. Inventory counts page
 up to 6,000 items and 2,000 game passes, with a `+` when a count is still
 capped.

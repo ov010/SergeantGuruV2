@@ -487,22 +487,42 @@ test("watcher sections show the server evidence behind each flag", () => {
     id: "1522651757115609140",
     sources: ["Bloxlink"],
     flagged: true,
-    reasons: ["Xeno (Executor Reselling Server) · 80 messages · last seen <t:1770000000:R>"],
+    score: 1.75,
+    serverCount: 2,
+    reasons: [
+      "**Xeno** (Executor Reselling Server) · 80 messages · last seen <t:1770000000:R>",
+      "**Krnl** (Executor Server)",
+    ],
   }];
   const evidence = formatWatcherEvidence(accounts);
-  assert.equal(evidence, "↳ <@1522651757115609140>\n  Xeno (Executor Reselling Server) · 80 messages · last seen <t:1770000000:R>");
+  assert.equal(
+    evidence,
+    "↳ <@1522651757115609140> · linked via Bloxlink · 2 servers · score 1.75\n  • **Xeno** (Executor Reselling Server) · 80 messages · last seen <t:1770000000:R>\n  • **Krnl** (Executor Server)",
+  );
 });
 
-test("watcher guild reasons describe server type, activity and recency", () => {
+test("watcher guild reasons describe every server, role, date range and activity", () => {
   const reasons = watcherGuildReasons({
     flagged: true,
     guilds: [
-      { name: "Xeno", guildTypes: [{ name: "Executor Reselling Server" }], activity: { messages: 80, reactions: 2 }, lastSeen: "2026-02-03T04:05:06.000Z" },
+      {
+        name: "Xeno",
+        guildTypes: [{ name: "Executor Reselling Server" }],
+        guildFlags: ["Inactive"],
+        guildJoins: ["2026-01-02T03:04:05.000Z"],
+        lastSeen: "2026-02-03T04:05:06.000Z",
+        activity: { messages: 80, reactions: 2, vcJoins: 1 },
+        roles: [{ name: "Buyer" }, { name: "He/Him" }],
+        membership: { staff: true },
+      },
       { name: "Water", guildTypes: [], activity: { messages: 2, reactions: 4 }, lastSeen: "2026-11-01T00:00:00.000Z" },
+      { name: "Krnl", guildTypes: [{ name: "Executor Server" }] },
     ],
   });
-  assert.match(reasons[0], /^Xeno \(Executor Reselling Server\) · 80 messages, 2 reactions, last seen <t:\d+:R>$/);
-  assert.match(reasons[1], /^Water · 2 messages, 4 reactions, last seen <t:\d+:R>$/);
+  assert.equal(reasons.length, 3, "every flagged server must be listed");
+  assert.match(reasons[0], /^\*\*Xeno\*\* \(Executor Reselling Server\) · staff · flags: Inactive · roles: Buyer, He\/Him · <t:\d+:d> – <t:\d+:d> · 80 messages, 2 reactions, 1 voice join$/);
+  assert.match(reasons[1], /^\*\*Water\*\* · last seen <t:\d+:R> · 2 messages, 4 reactions$/);
+  assert.equal(reasons[2], "**Krnl** (Executor Server)");
   assert.deepEqual(watcherGuildReasons({ flagged: true, guilds: [] }), ["flagged account; no server details were reported"]);
   assert.deepEqual(watcherGuildReasons({ flagged: false, guilds: [] }), []);
 });
@@ -518,13 +538,30 @@ test("Exploit Watcher keeps linked accounts out of its own section", () => {
       { id: "1533296343572025416", sources: ["Discord Profile", "Bloxlink"], flagged: false },
     ],
     injectedGames: [
-      { name: "Base Wars: The Land!", totalInjections: 3, lastInjection: "2026-07-01T17:00:00.000Z" },
-      { name: "Roblox", totalInjections: 2, lastInjection: "2026-06-21T22:10:00.000Z" },
+      { name: "Base Wars: The Land!", totalInjections: 3, firstInjection: "2026-06-30T01:00:00.000Z", lastInjection: "2026-07-01T17:00:00.000Z" },
+      { name: "Roblox", totalInjections: 2, firstInjection: "2026-06-20T08:00:00.000Z", lastInjection: "2026-06-21T22:10:00.000Z" },
     ],
   });
   assert.match(status, /\u{1F534} \*\*Flagged\*\* — 5 injections in 2 games/u);
-  assert.match(status, /Base Wars: The Land! — 3 \(last 2026-07-01\)/);
+  assert.match(status, /Base Wars: The Land! — 3 \(<t:\d+:d> – <t:\d+:d>\)/);
   assert.doesNotMatch(status, /Linked Discord accounts/);
+});
+
+test("Exploit Watcher lists every injected game instead of the first five", () => {
+  const games = Array.from({ length: 7 }, (_, index) => ({
+    name: `Game ${index + 1}`,
+    totalInjections: 1,
+    lastInjection: "2026-07-01T17:00:00.000Z",
+  }));
+  const status = formatExploitWatcher({
+    flagged: true,
+    totalInjections: 7,
+    totalGamesInjected: 7,
+    discordAccounts: [],
+    injectedGames: games,
+  });
+  for (const game of games) assert.match(status, new RegExp(`• ${game.name} — 1`));
+  assert.doesNotMatch(status, /and \d+ more/);
 });
 
 test("Exploit Watcher flags an account whose linked Discord accounts are flagged", () => {
